@@ -24,18 +24,28 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #ifndef hugecontainer_h__
 #define hugecontainer_h__
 
-#include <QMap>
+#include <QDataStream>
+#include <QDir>
+#include <QDirIterator>
 #include <QHash>
+#include <QMap>
+#include <QQueue>
 #include <QSharedData>
 #include <QSharedDataPointer>
-#include <memory>
 #include <QTemporaryFile>
-#include <QQueue>
-#include <QDataStream>
 #include <map>
+#include <memory>
 #include <unordered_map>
 
 namespace HugeContainer{
+    inline void cleanUp(){
+        QDirIterator cleanIter{ QDir::tempPath(), QStringList(QStringLiteral("HugeContainerData*")), QDir::Files | QDir::Writable | QDir::CaseSensitive | QDir::NoDotAndDotDot };
+        while (cleanIter.hasNext()) {
+            cleanIter.next();
+            QFile::remove(cleanIter.filePath());
+        }
+
+    }
     template <class ValueType>
     struct ContainerObjectData : public QSharedData{
         bool m_isAvailable;
@@ -95,7 +105,7 @@ namespace HugeContainer{
         std::unique_ptr<QQueue<KeyType> > m_cache;
         int m_maxCache;
         HugeContainerData()
-            :m_device(std::make_unique<QTemporaryFile>(QStringLiteral("HugeContainerDataXXXXXX")))
+            :m_device(std::make_unique<QTemporaryFile>(QDir::tempPath() + QDir::separator() + QStringLiteral("HugeContainerDataXXXXXX")))
             , m_cache(std::make_unique<QQueue<KeyType> >())
             , m_memoryMap(std::make_unique<QMap<qint64, bool> >())
             , m_itemsMap(std::make_unique<ItemMapType>())
@@ -107,7 +117,7 @@ namespace HugeContainer{
         }
         ~HugeContainerData() = default;
         HugeContainerData(HugeContainerData& other)
-            :m_device(std::make_unique<QTemporaryFile>(QStringLiteral("HugeContainerDataXXXXXX")))
+            :m_device(std::make_unique<QTemporaryFile>(QDir::tempPath() + QDir::separator() + QStringLiteral("HugeContainerDataXXXXXX")))
             , m_cache(std::make_unique<QQueue<KeyType> >(*(other.m_cache)))
             , m_memoryMap(std::make_unique<QMap<qint64, bool> >(*(other.m_memoryMap)))
             , m_itemsMap(std::make_unique<ItemMapType>(*(other.m_itemsMap)))
@@ -646,36 +656,39 @@ namespace HugeContainer{
             return *this;
         }
         double fragmentation() const{
-            return 
-                std::accumulate(m_d->m_memoryMap.constBegin(), m_d->m_memoryMap.constEnd() - 1, 0.0, [](double curr, bool val)->double {return val ? (curr + 1.0) : curr; }) 
-                / static_cast<double>(size())
+            return
+                std::accumulate(m_d->m_memoryMap->constBegin(), m_d->m_memoryMap->constEnd() - 1, 0.0, [](double curr, bool val)->double {return val ? (curr + 1.0) : curr; })
+                / static_cast<double>(size());
         }
         bool defrag(){
-            if (m_d->m_memoryMap.size()<=1)
+            if (m_d->m_memoryMap->size()<=1)
                 return true;
-            if (std::all_of(m_d->m_memoryMap.constBegin(), m_d->m_memoryMap.constEnd() - 1, [](bool val) ->bool {return !val}))
+            if (std::all_of(m_d->m_memoryMap->constBegin(), m_d->m_memoryMap->constEnd() - 1, [](bool val) ->bool {return !val; }))
                 return true;
-            auto newFile = std::make_unique<QTemporaryFile>(QStringLiteral("HugeContainerDataXXXXXX"));
-            if (!newFile.open())
+            auto newFile = std::make_unique<QTemporaryFile>(QDir::tempPath() + QDir::separator() + QStringLiteral("HugeContainerDataXXXXXX"));
+            if (!newFile->open())
                 return false;
             auto newMap = std::make_unique<QMap<qint64, bool> >();
             QHash<KeyType, qint64> oldPos;
             bool allGood=true;
-            for (auto i = m_d->m_itemsMap.begin(); allGood && i != m_d->m_itemsMap.end(); ++i) {
-                if (i->m_d->m_isAvaliable)
+            for (auto i = m_d->m_itemsMap->begin(); allGood && i != m_d->m_itemsMap->end(); ++i) {
+                if (i->m_d->m_isAvailable)
                     continue;
                 const auto newMapIter = newMap->insert(newFile->pos(), false);
-                if(newFile->write(readBlock(i.key())>=0)){
-                    oldPos.insert(i.key(), i->m_d->m_data.m_fpos);
-                    i->m_d->m_data.m_fpos = newMapIter.key();
+                if(newFile->write(readBlock(i.key()))>=0){
+                    oldPos.insert(i.key(), i->m_d->m_data.m_fPos);
+                    i->m_d->m_data.m_fPos = newMapIter.key();
                 }
                 else{
                     allGood = false;
                 }
             }
             if(!allGood){
-                for (auto i = oldPos.constEnd(); i != oldPos.constEnd(); ++i)
-                    m_d->m_itemsMap->operator[](i.key)->m_d->m_data.m_fpos = i.value();
+                for (auto i = oldPos.constEnd(); i != oldPos.constEnd(); ++i){
+                    auto oldMapIter = m_d->m_itemsMap->find(i.key());
+                    Q_ASSERT(oldMapIter != m_d->m_itemsMap->end());
+                    oldMapIter.value().m_d->m_data.m_fPos = i.value();
+                }
                 return false;
             }
             newMap->insert(newFile->pos(), true);
