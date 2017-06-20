@@ -77,10 +77,10 @@ namespace HugeContainer{
     struct ContainerObject{
         QSharedDataPointer<ContainerObjectData<ValueType> > m_d;
         explicit ContainerObject(qint64 fPos)
-            :m_d(new ContainerObjectData(fPos))
+            :m_d(new ContainerObjectData<ValueType>(fPos))
         {}
         explicit ContainerObject(ValueType* val)
-            :m_d(new ContainerObjectData(val))
+            :m_d(new ContainerObjectData<ValueType>(val))
         {}
         ContainerObject(const ContainerObject& other) = default;
     };
@@ -100,7 +100,11 @@ namespace HugeContainer{
             , m_memoryMap(std::make_unique<QMap<qint64, bool> >())
             , m_itemsMap(std::make_unique<ItemMapType>())
             , m_maxCache(1)
-        {}
+        {
+            if (!m_device->open())
+                Q_ASSERT_X(false, "HugeContainer::HugeContainer", "Unable to create a temporary file");
+            m_memoryMap->insert(0, true);
+        }
         ~HugeContainerData() = default;
         HugeContainerData(HugeContainerData& other)
             :m_device(std::make_unique<QTemporaryFile>(QStringLiteral("HugeContainerDataXXXXXX")))
@@ -109,6 +113,8 @@ namespace HugeContainer{
             , m_itemsMap(std::make_unique<ItemMapType>(*(other.m_itemsMap)))
             , m_maxCache(other.m_maxCache)
         {
+            if (!m_device->open())
+                Q_ASSERT_X(false, "HugeContainer::HugeContainer", "Unable to create a temporary file");
             other.m_device->seek(0);
             qint64 totalSize = other.m_device->size();
             for (; totalSize > 1024; totalSize -= 1024)
@@ -176,30 +182,38 @@ namespace HugeContainer{
             }
             fileIter.value() = true;
         }
- 
+        qint64 writeElementInMap(const ValueType& val) const
+        {
+            QByteArray block;
+            {
+                QDataStream writerStream(&block, QIODevice::WriteOnly);
+                writerStream << val;
+            }
+            const qint64 result = writeInMap(block);
+            return result;
+        }
         bool saveQueue(int numElements = 1) const{
-            for (; numElements > 0; --numElements) {
+            bool allOk=true;
+            for (; allOk && numElements > 0; --numElements) {
                 Q_ASSERT(!m_d->m_cache->isEmpty());
                 const KeyType keyToWrite = m_d->m_cache->dequeue();
                 auto valToWrite = m_d->m_itemsMap->find(keyToWrite);
                 Q_ASSERT(valToWrite != m_d->m_itemsMap->end());
                 Q_ASSERT(valToWrite->m_d->m_isAvailable);
-                QByteArray block;
-                {
-                    QDataStream writerStream(&block, QIODevice::WriteOnly);
-                    writerStream << *(valToWrite->m_d->m_data.m_val);
-                }
-                const qint64 result = writeInMap(block);
-                if(result>=0){
+                const qint64 result = writeElementInMap(*(valToWrite->m_d->m_data.m_val));
+                if (result>=0) {
                     valToWrite->m_d->m_isAvailable = false;
                     valToWrite->m_d->m_data.m_fPos = result;
                 }
                 else{
                     m_d->m_cache->prepend(keyToWrite);
+                    allOk = false;
                 }
             }
+            return allOk;
         }
-        QByteArray readBlock(qint32 key) const
+
+        QByteArray readBlock(KeyType key) const
         {
             if (!m_d->m_device->isReadable())
                 return QByteArray();
@@ -222,92 +236,92 @@ namespace HugeContainer{
         {
             friend class HugeContainer;
             const HugeContainer<KeyType, ValueType, sorted>* m_container;
-            using baseIterType = ItemMapType::iterator;
-            baseIterType m_baseIter;
-            iterator(const HugeContainer* const  cont, const baseIterType& baseItr)
+            int m_baseIterShift;
+            iterator(const HugeContainer<KeyType, ValueType, sorted>* const  cont, int baseItrShift)
                 :m_container(cont)
-                , m_baseIter(baseItr)
+                , m_baseIterShift(baseItrShift)
             {}
         public:
             iterator();
             iterator(const iterator& other) = default;
             iterator& operator=(const iterator& other) = default;
-            iterator operator+(int j) const { return iterator(m_container, m_baseIter + j); }
-            iterator &operator++() { ++m_baseIter; return *this; }
-            iterator operator++(int) { iterator result(*this); ++m_baseIter; return result; }
-            iterator &operator+=(int j) { m_baseIter += j; return *this; }
-            iterator operator-(int j) const { return iterator(m_container, m_baseIter - j); }
-            iterator &operator--() { --m_baseIter; return *this; }
-            iterator operator--(int) { iterator result(*this); --m_baseIter; return result; }
-            iterator &operator-=(int j) { m_baseIter -= j; return *this; }
-            const KeyType& key() const { return m_baseIter.key(); }
+            iterator operator+(int j) const { return iterator(m_container, m_baseIterShift + j); }
+            iterator &operator++() { ++m_baseIterShift; return *this; }
+            iterator operator++(int) { iterator result(*this); ++m_baseIterShift; return result; }
+            iterator &operator+=(int j) { m_baseIterShift += j; return *this; }
+            iterator operator-(int j) const { return iterator(m_container, m_baseIterShift - j); }
+            iterator &operator--() { --m_baseIterShift; return *this; }
+            iterator operator--(int) { iterator result(*this); --m_baseIterShift; return result; }
+            iterator &operator-=(int j) { m_baseIterShift -= j; return *this; }
+            const KeyType& key() const { return (m_container->m_d->m_itemsMap->begin() + m_baseIterShift).key(); }
             ValueType& operator*() const { return value(); }
             ValueType& value() const { 
-                const ValueType* const result = m_container->value(m_baseIter.key());
+                ValueType* const result = m_container->value(key());
                 Q_ASSERT(result);
                 return *result;
             }
             ValueType* operator->() const
             {
-                const ValueType* const result = m_container->value(m_baseIter.key());
+                const ValueType* const result = m_container->value(key());
                 Q_ASSERT(result);
                 return result;
             }
             bool operator!=(const iterator &other) const { return !operator==(other); }
-            bool operator==(const iterator &other) const { return m_container == other.m_container &&  m_baseIter == other.m_baseIter; }
+            bool operator==(const iterator &other) const { return m_container == other.m_container &&  m_baseIterShift == other.m_baseIterShift; }
         };
         using Iterator = iterator;
         
-
+ 
         class const_iterator
         {
             friend class HugeContainer;
             const HugeContainer<KeyType, ValueType, sorted>* m_container;
-            using baseIterType = ItemMapType::const_iterator;
-            baseIterType m_baseIter;
-            const_iterator(const HugeContainer* const  cont, const baseIterType& baseItr)
+            int m_baseIterShift;
+            const_iterator(const HugeContainer<KeyType, ValueType, sorted>* const  cont, int baseItrShift)
                 :m_container(cont)
-                , m_baseIter(baseItr)
+                , m_baseIterShift(baseItrShift)
             {}
         public:
             const_iterator();
             const_iterator(const const_iterator& other) = default;
             const_iterator& operator=(const const_iterator& other) = default;
-            const_iterator operator+(int j) const { return const_iterator(m_container, m_baseIter + j); }
-            const_iterator &operator++() { ++m_baseIter; return *this; }
-            const_iterator operator++(int) { const_iterator result(*this); ++m_baseIter; return result; }
-            const_iterator &operator+=(int j) { m_baseIter += j; return *this; }
-            const_iterator operator-(int j) const { return const_iterator(m_container, m_baseIter - j); }
-            const_iterator &operator--() { --m_baseIter; return *this; }
-            const_iterator operator--(int) { const_iterator result(*this); --m_baseIter; return result; }
-            const_iterator &operator-=(int j) { m_baseIter -= j; return *this; }
-            const KeyType& key() const { return m_baseIter.key(); }
+            const_iterator operator+(int j) const { return const_iterator(m_container, m_baseIterShift + j); }
+            const_iterator &operator++() { ++m_baseIterShift; return *this; }
+            const_iterator operator++(int) { const_iterator result(*this); ++m_baseIterShift; return result; }
+            const_iterator &operator+=(int j) { m_baseIterShift += j; return *this; }
+            const_iterator operator-(int j) const { return const_iterator(m_container, m_baseIterShift - j); }
+            const_iterator &operator--() { --m_baseIterShift; return *this; }
+            const_iterator operator--(int) { const_iterator result(*this); --m_baseIterShift; return result; }
+            const_iterator &operator-=(int j) { m_baseIterShift -= j; return *this; }
+            const KeyType& key() const { return (m_container->m_d->m_itemsMap->constBegin() + m_baseIterShift).key(); }
             const ValueType& operator*() const { return value(); }
             const ValueType& value() const
             {
-                const ValueType* const result = m_container->value(m_baseIter.key());
+                const ValueType* const result = m_container->value(key());
                 Q_ASSERT(result);
                 return *result;
             }
             const ValueType* operator->() const
             {
-                const ValueType* const result = m_container->value(m_baseIter.key());
+                const ValueType* const result = m_container->value(key());
                 Q_ASSERT(result);
                 return result;
             }
             bool operator!=(const const_iterator &other) const { return !operator==(other); }
-            bool operator==(const const_iterator &other) const { return m_container == other.m_container &&  m_baseIter == other.m_baseIter; }
+            bool operator==(const const_iterator &other) const { return m_container == other.m_container &&  m_baseIterShift == other.m_baseIterShift; }
         };
         using ConstIterator = const_iterator;
         HugeContainer(const NormalStdContaineType& list){
             const auto listBegin = std::begin(list);
             const auto listEnd = std::end(list);
+            auto prevIter = std::begin(list);
             for (auto i = listBegin; i != listEnd; ++i) {
                 if (i != listBegin) {
-                    if (i.key() == (i - 1).key())
+                    if (i->first == prevIter->first)
                         continue;
                 }
                 setValue(i->first, i->second);
+                prevIter = i;
             }
         }
         HugeContainer(std::initializer_list<std::pair<KeyType, ValueType> > list)
@@ -315,12 +329,14 @@ namespace HugeContainer{
         {
             const auto listBegin = std::begin(list);
             const auto listEnd = std::end(list);
+            auto prevIter = std::begin(list);
             for (auto i = listBegin; i != listEnd; ++i) {
                 if (i != listBegin) {
-                    if (i.key() == (i - 1).key())
+                    if (i->first == prevIter->first)
                         continue;
                 }
                 setValue(i->first, i->second);
+                prevIter = i;
             }
         }
         HugeContainer(const NormalContaineType& list)
@@ -368,7 +384,7 @@ namespace HugeContainer{
             m_d->m_cache->enqueue(key);
             auto itemIter= m_d->m_itemsMap->find(key);
             if (itemIter == m_d->m_itemsMap->end()){
-                m_d->m_itemsMap->insert(key, ContainerObject(val));
+                m_d->m_itemsMap->insert(key, ContainerObject<ValueType>(val));
             }
             else{
                 if (!itemIter->m_d->m_isAvailable)
@@ -381,6 +397,7 @@ namespace HugeContainer{
         void swap(HugeContainer<KeyType, ValueType, sorted>& other) Q_DECL_NOTHROW{
             std::swap(m_d, other.m_d);
         }
+
         void remove(const KeyType& key)
         {
             m_d->m_cache->removeAll(key);
@@ -395,7 +412,8 @@ namespace HugeContainer{
         {
             return enqueueValue(key,new ValueType(val));
         }
-        iterator insert(const KeyType &key, const ValueType &val){
+        iterator insert(const KeyType &key, const ValueType &val)
+        {
             if (setValue(key, val))
                 return find(key);
             return end();
@@ -411,22 +429,26 @@ namespace HugeContainer{
             m_d->m_memoryMap->insert(0, true);
             m_d->m_cache->clear();
         }
+        ValueType* valueFromBlock(const KeyType& key) const{
+            QByteArray block = readBlock(key);
+            if (block.isEmpty())
+                return nullptr;
+            ValueType* result = new ValueType;
+            QDataStream readerStream(block);
+            readerStream >> *result;
+            return result;
+        }
         ValueType* value(const KeyType& key) const
         {
             auto valueIter = m_d->m_itemsMap->find(key);
             if (valueIter == m_d->m_itemsMap->end())
                 return nullptr;
             if(!valueIter->m_d->m_isAvailable){
-                const qint64 oldPos = valueIter->m_d->m_data.m_fPos;
-                QByteArray block = readBlock(key);
-                if (block.isEmpty())
+                ValueType* const result = valueFromBlock(key);
+                if (!result)
                     return nullptr;
-                ValueType* result = new ValueType;
-                QDataStream readerStream(block);
-                readerStream >> *result;
                 if (!enqueueValue(key, result))
                     return nullptr;
-                removeFromMap(oldPos);
             }
             else {
                 m_d->m_cache->removeAll(key);
@@ -441,7 +463,7 @@ namespace HugeContainer{
                 setValue(key, ValueType());
                 result = value(key);
             }
-            return result;
+            return *result;
         }
         ValueType operator[](const KeyType& key) const
         {
@@ -449,6 +471,70 @@ namespace HugeContainer{
             if (!result)
                 return ValueType{};
             return *result;
+        }
+        bool unite(const HugeContainer<KeyType,ValueType,sorted>& other, bool overWrite = false){
+            const auto endItemMap = other.m_d->m_itemsMap->constEnd();
+            for (auto i = other.m_d->m_itemsMap->constBegin(); i != endItemMap;++i){
+                auto currItmIter = m_d->m_itemsMap->find(i.key());
+                if (currItmIter != m_d->m_itemsMap->end() && !overWrite)
+                    continue;
+                if(i->m_d->m_isAvailable){
+                    if (currItmIter != m_d->m_itemsMap->end()) { // contains(i.key())
+                        if (m_d->m_cache->contains(i.key())) {
+                            Q_ASSERT(currItmIter->m_d->m_isAvailable);
+                            delete currItmIter->m_d->m_data.m_val;
+                            currItmIter->m_d->m_data.m_val = new ValueType(*(i->m_d->m_data.m_val));
+                        }
+                        else {
+                            Q_ASSERT(!currItmIter->m_d->m_isAvailable);
+                            const qint64 newPos = writeElementInMap(*(i->m_d->m_data.m_val));
+                            if (newPos >= 0)
+                                removeFromMap(currItmIter->m_d->m_data.m_fPos);
+                            else
+                                return false;
+                            currItmIter->m_d->m_data.m_fPos = newPos;
+                        }
+                    }
+                    else{
+                        const qint64 newPos = writeElementInMap(*(i->m_d->m_data.m_val));
+                        if (newPos >= 0)
+                            m_d->m_itemsMap->insert(i.key(), ContainerObject<ValueType>(newPos));
+                        else
+                            return false;
+                    }
+                }
+                else{
+                    if (currItmIter != m_d->m_itemsMap->end()) {
+                        if (m_d->m_cache->contains(i.key())) {
+                            Q_ASSERT(currItmIter->m_d->m_isAvailable);
+                            ValueType* newVal = other.valueFromBlock(i.key());
+                            if (!newVal)
+                                return false;
+                            delete currItmIter->m_d->m_data.m_val;
+                            currItmIter->m_d->m_data.m_val = newVal;
+                        }
+                        else{
+                            Q_ASSERT(!currItmIter->m_d->m_isAvailable);
+                            const qint64 newPos = writeInMap(other.readBlock(i.key()));
+                            if (newPos >= 0)
+                                removeFromMap(currItmIter->m_d->m_data.m_fPos);
+                            else
+                                return false;
+                            currItmIter->m_d->m_data.m_fPos = newPos;
+                        }
+                        
+                    }
+                    else{
+                        const qint64 newPos = writeInMap(other.readBlock(i.key()));
+                        if (newPos >= 0)
+                            m_d->m_itemsMap->insert(i.key(), ContainerObject<ValueType>(newPos));
+                        else
+                            return false;
+                    }
+                }
+
+            }
+            return true;
         }
         bool contains(const KeyType& key) const
         {
@@ -467,7 +553,7 @@ namespace HugeContainer{
             return m_d->m_itemsMap->isEmpty();
         }
         iterator begin(){
-            return iterator(this, m_d->m_itemsMap->begin());
+            return iterator(this, 0);
         }
         
         const_iterator begin() const
@@ -480,15 +566,15 @@ namespace HugeContainer{
         }
         const_iterator constBegin() const
         {
-            return const_iterator(this, m_d->m_itemsMap->constBegin());
+            return const_iterator(this, 0);
         }
         iterator end()
         {
-            return iterator(this, m_d->m_itemsMap->end());
+            return iterator(this, m_d->m_itemsMap->size());
         }
         const_iterator constEnd() const
         {
-            return const_iterator(this, m_d->m_itemsMap->constEnd());
+            return const_iterator(this, m_d->m_itemsMap->size());
         }
         const_iterator end() const
         {
@@ -500,20 +586,16 @@ namespace HugeContainer{
         }
         iterator find(const KeyType& val)
         {
-            return iterator(this, m_d->m_itemsMap->find(val));
+            return iterator(this, std::distance(m_d->m_itemsMap->begin(), m_d->m_itemsMap->find(val)));
         }
         const_iterator constFind(const KeyType& val)
         {
-            return const_iterator(this, m_d->m_itemsMap->constFind(val));
+            return const_iterator(this, std::distance(m_d->m_itemsMap->constBegin(), m_d->m_itemsMap->constFind(val)));
         }
         iterator erase(iterator pos)
         {
-            iterator endIter = end();
-            if (pos == endIter)
-                return endIter;
-            iterator result = pos + 1;
-            if (removeValue(result.key()))
-                return result;
+            if (pos != end())
+                remove(pos.key());
             return pos;
         }
         ValueType take(const KeyType& key)
@@ -522,7 +604,7 @@ namespace HugeContainer{
             if (!resultP)
                 return ValueType();
             ValueType result = std::move(*resultP);
-            removeValue(key);
+            remove(key);
             return result;
         }
         ValueType& last(){
@@ -556,11 +638,65 @@ namespace HugeContainer{
         HugeContainer()
             :m_d(new HugeContainerData<KeyType, ValueType, sorted>{})
         {
-            if (!m_d->m_device->open())
-                Q_ASSERT_X(false, "HugeContainer::HugeContainer", "Unable to create a temporary file");
-            m_d->m_memoryMap->insert(0, true);
+            
         }
         HugeContainer(const HugeContainer& other) = default;
+        HugeContainer& operator=(HugeContainer&& other) Q_DECL_NOTHROW{
+            swap(other);
+            return *this;
+        }
+        double fragmentation() const{
+            return 
+                std::accumulate(m_d->m_memoryMap.constBegin(), m_d->m_memoryMap.constEnd() - 1, 0.0, [](double curr, bool val)->double {return val ? (curr + 1.0) : curr; }) 
+                / static_cast<double>(size())
+        }
+        bool defrag(){
+            if (m_d->m_memoryMap.size()<=1)
+                return true;
+            if (std::all_of(m_d->m_memoryMap.constBegin(), m_d->m_memoryMap.constEnd() - 1, [](bool val) ->bool {return !val}))
+                return true;
+            auto newFile = std::make_unique<QTemporaryFile>(QStringLiteral("HugeContainerDataXXXXXX"));
+            if (!newFile.open())
+                return false;
+            auto newMap = std::make_unique<QMap<qint64, bool> >();
+            QHash<KeyType, qint64> oldPos;
+            bool allGood=true;
+            for (auto i = m_d->m_itemsMap.begin(); allGood && i != m_d->m_itemsMap.end(); ++i) {
+                if (i->m_d->m_isAvaliable)
+                    continue;
+                const auto newMapIter = newMap->insert(newFile->pos(), false);
+                if(newFile->write(readBlock(i.key())>=0)){
+                    oldPos.insert(i.key(), i->m_d->m_data.m_fpos);
+                    i->m_d->m_data.m_fpos = newMapIter.key();
+                }
+                else{
+                    allGood = false;
+                }
+            }
+            if(!allGood){
+                for (auto i = oldPos.constEnd(); i != oldPos.constEnd(); ++i)
+                    m_d->m_itemsMap->operator[](i.key)->m_d->m_data.m_fpos = i.value();
+                return false;
+            }
+            newMap->insert(newFile->pos(), true);
+            m_d->m_device = std::move(newFile);
+            m_d->m_memoryMap = std::move(newMap);
+            return true;
+        }
+        bool operator==(const HugeContainer<KeyType, ValueType,sorted>& other){
+            if(size()!=other.size())
+                return false;
+            for (auto i = m_d->m_itemsMap->constBegin(); i != m_d->m_itemsMap->constBegin(); ++i){
+                if (!other.contains(i.key()))
+                    return false;
+            }
+            // Compare values as last resort
+            for (auto i = m_d->m_itemsMap->constBegin(); i != m_d->m_itemsMap->constBegin(); ++i) {
+                if (!(*(other.value(i.key())) == *value(i.key())))
+                    return false;
+            }
+            return true;
+        }
         virtual ~HugeContainer() = default;
         using difference_type = qptrdiff;
         using key_type = KeyType;
