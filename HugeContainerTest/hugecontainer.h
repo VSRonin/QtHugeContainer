@@ -38,6 +38,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <unordered_map>
 
 namespace HugeContainer{
+    //! Removes any leftover data from previous crashes
     inline void cleanUp(){
         QDirIterator cleanIter{ QDir::tempPath(), QStringList(QStringLiteral("HugeContainerData*")), QDir::Files | QDir::Writable | QDir::CaseSensitive | QDir::NoDotAndDotDot };
         while (cleanIter.hasNext()) {
@@ -46,103 +47,164 @@ namespace HugeContainer{
         }
 
     }
-    template <class ValueType>
-    struct ContainerObjectData : public QSharedData{
-        bool m_isAvailable;
-        union ObjectData
-        {
-            explicit ObjectData(qint64 fPos)
-                :m_fPos(fPos)
-            {}
-            explicit ObjectData(ValueType* val)
-                :m_val(val)
-            {}
-            qint64 m_fPos;
-            ValueType* m_val;
-        } m_data;
-        explicit ContainerObjectData(qint64 fPos)
-            :m_isAvailable(false)
-            , m_data(fPos)
-        {}
-        explicit ContainerObjectData(ValueType* val)
-            :m_isAvailable(true)
-            , m_data(val)
-        {
-            Q_ASSERT(val);
-        }
-        ~ContainerObjectData()
-        {
-            if (m_isAvailable)
-                delete m_data.m_val;
-        }
-        ContainerObjectData(const ContainerObjectData& other)
-            :m_isAvailable(other.m_isAvailable)
-            , m_data(other.m_data.m_fPos)
-        {
-            if (m_isAvailable)
-                m_data.m_val = new ValueType(*(other.m_data.m_val));
-        }
-    };
-    template <class ValueType>
-    struct ContainerObject{
-        QSharedDataPointer<ContainerObjectData<ValueType> > m_d;
-        explicit ContainerObject(qint64 fPos)
-            :m_d(new ContainerObjectData<ValueType>(fPos))
-        {}
-        explicit ContainerObject(ValueType* val)
-            :m_d(new ContainerObjectData<ValueType>(val))
-        {}
-        ContainerObject(const ContainerObject& other) = default;
-    };
-    template <class KeyType, class ValueType, bool sorted>
-    class HugeContainerData : public QSharedData
-    {
-        using ItemMapType = typename std::conditional<sorted, QMap<KeyType, ContainerObject<ValueType> >, QHash<KeyType, ContainerObject<ValueType> > >::type;
-    public:
-        std::unique_ptr<ItemMapType> m_itemsMap;
-        std::unique_ptr<QMap<qint64, bool> > m_memoryMap;
-        std::unique_ptr<QTemporaryFile> m_device;
-        std::unique_ptr<QQueue<KeyType> > m_cache;
-        int m_maxCache;
-        HugeContainerData()
-            :m_device(std::make_unique<QTemporaryFile>(QDir::tempPath() + QDir::separator() + QStringLiteral("HugeContainerDataXXXXXX")))
-            , m_cache(std::make_unique<QQueue<KeyType> >())
-            , m_memoryMap(std::make_unique<QMap<qint64, bool> >())
-            , m_itemsMap(std::make_unique<ItemMapType>())
-            , m_maxCache(1)
-        {
-            if (!m_device->open())
-                Q_ASSERT_X(false, "HugeContainer::HugeContainer", "Unable to create a temporary file");
-            m_memoryMap->insert(0, true);
-        }
-        ~HugeContainerData() = default;
-        HugeContainerData(HugeContainerData& other)
-            :m_device(std::make_unique<QTemporaryFile>(QDir::tempPath() + QDir::separator() + QStringLiteral("HugeContainerDataXXXXXX")))
-            , m_cache(std::make_unique<QQueue<KeyType> >(*(other.m_cache)))
-            , m_memoryMap(std::make_unique<QMap<qint64, bool> >(*(other.m_memoryMap)))
-            , m_itemsMap(std::make_unique<ItemMapType>(*(other.m_itemsMap)))
-            , m_maxCache(other.m_maxCache)
-        {
-            if (!m_device->open())
-                Q_ASSERT_X(false, "HugeContainer::HugeContainer", "Unable to create a temporary file");
-            other.m_device->seek(0);
-            qint64 totalSize = other.m_device->size();
-            for (; totalSize > 1024; totalSize -= 1024)
-                m_device->write(other.m_device->read(1024));
-            m_device->write(other.m_device->read(totalSize));
-        }
-        
-    };
+
     template <class KeyType, class ValueType, bool sorted = false>
     class HugeContainer
     {
         static_assert(std::is_default_constructible<ValueType>::value, "ValueType must provide a default constructor");
         static_assert(std::is_copy_constructible<ValueType>::value, "ValueType must provide a copy constructor");
     private:
+
+        template <class ValueType>
+        struct ContainerObjectData : public QSharedData
+        {
+            bool m_isAvailable;
+            union ObjectData
+            {
+                explicit ObjectData(qint64 fPos)
+                    :m_fPos(fPos)
+                {}
+                explicit ObjectData(ValueType* val)
+                    :m_val(val)
+                {}
+                qint64 m_fPos;
+                ValueType* m_val;
+            } m_data;
+            explicit ContainerObjectData(qint64 fPos)
+                :m_isAvailable(false)
+                , m_data(fPos)
+            {}
+            explicit ContainerObjectData(ValueType* val)
+                :m_isAvailable(true)
+                , m_data(val)
+            {
+                Q_ASSERT(val);
+            }
+            ~ContainerObjectData()
+            {
+                if (m_isAvailable)
+                    delete m_data.m_val;
+            }
+            ContainerObjectData(const ContainerObjectData& other)
+                :m_isAvailable(other.m_isAvailable)
+                , m_data(other.m_data.m_fPos)
+            {
+                qDebug("ContainerObjectData detached");
+                if (m_isAvailable)
+                    m_data.m_val = new ValueType(*(other.m_data.m_val));
+            }
+        };
+
+        template <class ValueType>
+        struct ContainerObject
+        {
+            QSharedDataPointer<ContainerObjectData<ValueType> > m_d;
+            explicit ContainerObject(qint64 fPos)
+                :m_d(new ContainerObjectData<ValueType>(fPos))
+            {}
+            explicit ContainerObject(ValueType* val)
+                :m_d(new ContainerObjectData<ValueType>(val))
+            {}
+            ContainerObject(const ContainerObject& other) = default;
+        };
+
+        template <class KeyType, class ValueType, bool sorted>
+        class HugeContainerData : public QSharedData
+        {
+            using ItemMapType = typename std::conditional<sorted, QMap<KeyType, ContainerObject<ValueType> >, QHash<KeyType, ContainerObject<ValueType> > >::type;
+        public:
+            std::unique_ptr<ItemMapType> m_itemsMap;
+            std::unique_ptr<QMap<qint64, bool> > m_memoryMap;
+            std::unique_ptr<QTemporaryFile> m_device;
+            std::unique_ptr<QQueue<KeyType> > m_cache;
+            int m_maxCache;
+            int m_compressionLevel;
+            HugeContainerData()
+                :m_device(std::make_unique<QTemporaryFile>(QDir::tempPath() + QDir::separator() + QStringLiteral("HugeContainerDataXXXXXX")))
+                , m_cache(std::make_unique<QQueue<KeyType> >())
+                , m_memoryMap(std::make_unique<QMap<qint64, bool> >())
+                , m_itemsMap(std::make_unique<ItemMapType>())
+                , m_maxCache(1)
+                , m_compressionLevel(0)
+            {
+                if (!m_device->open())
+                    Q_ASSERT_X(false, "HugeContainer::HugeContainer", "Unable to create a temporary file");
+                m_memoryMap->insert(0, true);
+            }
+            ~HugeContainerData() = default;
+            HugeContainerData(HugeContainerData& other)
+                :m_device(std::make_unique<QTemporaryFile>(QDir::tempPath() + QDir::separator() + QStringLiteral("HugeContainerDataXXXXXX")))
+                , m_cache(std::make_unique<QQueue<KeyType> >(*(other.m_cache)))
+                , m_memoryMap(std::make_unique<QMap<qint64, bool> >(*(other.m_memoryMap)))
+                , m_itemsMap(std::make_unique<ItemMapType>(*(other.m_itemsMap)))
+                , m_maxCache(other.m_maxCache)
+                , m_compressionLevel(other.m_compressionLevel)
+            {
+                qDebug("HugeContainerData detached");
+                if (!m_device->open())
+                    Q_ASSERT_X(false, "HugeContainer::HugeContainer", "Unable to create a temporary file");
+                other.m_device->seek(0);
+                qint64 totalSize = other.m_device->size();
+                for (; totalSize > 1024; totalSize -= 1024)
+                    m_device->write(other.m_device->read(1024));
+                m_device->write(other.m_device->read(totalSize));
+            }
+
+        };
+
         using NormalContaineType = typename std::conditional<sorted, QMap<KeyType, ValueType>, QHash<KeyType, ValueType> >::type;
         using NormalStdContaineType = typename std::conditional<sorted, std::map<KeyType, ValueType>, std::unordered_map<KeyType, ValueType> >::type;
         QSharedDataPointer<HugeContainerData<KeyType,ValueType,sorted> > m_d;
-    protected:
+        ValueType* valueFromBlock(const KeyType& key) const
+        {
+            QByteArray block = readBlock(key);
+            if (block.isEmpty())
+                return nullptr;
+            ValueType* result = new ValueType;
+            QDataStream readerStream(block);
+            readerStream >> *result;
+            return result;
+        }
+        bool defrag(bool readCompressed, int writeCompression)
+        {
+            if (m_d->m_memoryMap->size() <= 1)
+                return true;
+            if (std::all_of(m_d->m_memoryMap->constBegin(), m_d->m_memoryMap->constEnd() - 1, [](bool val) ->bool {return !val; }))
+                return true;
+            auto newFile = std::make_unique<QTemporaryFile>(QDir::tempPath() + QDir::separator() + QStringLiteral("HugeContainerDataXXXXXX"));
+            if (!newFile->open())
+                return false;
+            auto newMap = std::make_unique<QMap<qint64, bool> >();
+            QHash<KeyType, qint64> oldPos;
+            bool allGood = true;
+            for (auto i = m_d->m_itemsMap->begin(); allGood && i != m_d->m_itemsMap->end(); ++i) {
+                if (i->m_d->m_isAvailable)
+                    continue;
+                const auto newMapIter = newMap->insert(newFile->pos(), false);
+                QByteArray blockToWrite = readBlock(i.key(), readCompressed);
+                if (writeCompression != 0)
+                    blockToWrite = qCompress(blockToWrite, writeCompression);
+                if (newFile->write(blockToWrite) >= 0) {
+                    oldPos.insert(i.key(), i->m_d->m_data.m_fPos);
+                    i->m_d->m_data.m_fPos = newMapIter.key();
+                }
+                else {
+                    allGood = false;
+                }
+            }
+            if (!allGood) {
+                for (auto i = oldPos.constEnd(); i != oldPos.constEnd(); ++i) {
+                    auto oldMapIter = m_d->m_itemsMap->find(i.key());
+                    Q_ASSERT(oldMapIter != m_d->m_itemsMap->end());
+                    oldMapIter.value().m_d->m_data.m_fPos = i.value();
+                }
+                return false;
+            }
+            newMap->insert(newFile->pos(), true);
+            m_d->m_device = std::move(newFile);
+            m_d->m_memoryMap = std::move(newMap);
+            return true;
+        }
         qint64 writeInMap(const QByteArray& block) const
         {
             if (!m_d->m_device->isWritable())
@@ -199,6 +261,8 @@ namespace HugeContainer{
                 QDataStream writerStream(&block, QIODevice::WriteOnly);
                 writerStream << val;
             }
+            if (m_d->m_compressionLevel!=0)
+                block = qCompress(block, m_d->m_compressionLevel);
             const qint64 result = writeInMap(block);
             return result;
         }
@@ -222,8 +286,33 @@ namespace HugeContainer{
             }
             return allOk;
         }
-
-        QByteArray readBlock(KeyType key) const
+        bool enqueueValue(const KeyType& key, ValueType* val) const
+        {
+            int cacheIdx = m_d->m_cache->indexOf(key);
+            if (cacheIdx >= 0) {
+                m_d->m_cache->removeAt(cacheIdx);
+            }
+            else if (m_d->m_cache->size() == m_d->m_maxCache) {
+                if (!saveQueue())
+                    return false;
+            }
+            m_d->m_cache->enqueue(key);
+            auto itemIter = m_d->m_itemsMap->find(key);
+            if (itemIter == m_d->m_itemsMap->end()) {
+                m_d->m_itemsMap->insert(key, ContainerObject<ValueType>(val));
+            }
+            else {
+                if (!itemIter->m_d->m_isAvailable)
+                    removeFromMap(itemIter->m_d->m_data.m_fPos);
+                itemIter->m_d->m_isAvailable = true;
+                itemIter->m_d->m_data.m_val = val;
+            }
+            return true;
+        }
+        QByteArray readBlock(KeyType key) const{
+            return readBlock(key, m_d->m_compressionLevel != 0);
+        }
+        QByteArray readBlock(KeyType key, bool compressed) const
         {
             if (!m_d->m_device->isReadable())
                 return QByteArray();
@@ -237,9 +326,14 @@ namespace HugeContainer{
                 return QByteArray();
             auto nextIter = fileIter + 1;
             m_d->m_device->seek(fileIter.key());
-            if (nextIter == m_d->m_memoryMap->constEnd())
-                return m_d->m_device->readAll();
-            return m_d->m_device->read(nextIter.key() - fileIter.key());
+            QByteArray result;
+            if (nextIter == m_d->m_memoryMap->constEnd()) 
+                result = m_d->m_device->readAll();
+            else 
+                result = m_d->m_device->read(nextIter.key() - fileIter.key());
+            if (compressed)
+                return qUncompress(result);
+            return result;
         }
     public:
         class iterator
@@ -266,9 +360,7 @@ namespace HugeContainer{
             const KeyType& key() const { return (m_container->m_d->m_itemsMap->begin() + m_baseIterShift).key(); }
             ValueType& operator*() const { return value(); }
             ValueType& value() const { 
-                ValueType* const result = m_container->value(key());
-                Q_ASSERT(result);
-                return *result;
+                return m_container->value(key());
             }
             ValueType* operator->() const
             {
@@ -307,9 +399,7 @@ namespace HugeContainer{
             const ValueType& operator*() const { return value(); }
             const ValueType& value() const
             {
-                const ValueType* const result = m_container->value(key());
-                Q_ASSERT(result);
-                return *result;
+                return  m_container->value(key());
             }
             const ValueType* operator->() const
             {
@@ -366,10 +456,12 @@ namespace HugeContainer{
         }
         QList<KeyType> uniqueKeys() const
         {
-
-            return m_d->m_itemsMap->uniqueKeys();
+            Q_ASSERT(m_d->m_itemsMap->keys() == m_d->m_itemsMap->uniqueKeys());
+            return keys();
         }
-        int maxCache() const { return m_d->m_maxCache; }
+        int maxCache() const {
+            return m_d->m_maxCache;
+        }
         bool setMaxCache(int val) { 
             val = qMax(1, val);
             if (val == m_d->m_maxCache)
@@ -381,29 +473,7 @@ namespace HugeContainer{
             m_d->m_maxCache = val;
             return true;
         }
-        bool enqueueValue(const KeyType& key, ValueType* val) const
-        {
-            int cacheIdx = m_d->m_cache->indexOf(key);
-            if (cacheIdx >= 0) {
-                m_d->m_cache->removeAt(cacheIdx);
-            }
-            else if (m_d->m_cache->size() == m_d->m_maxCache) {
-                if (!saveQueue())
-                    return false;
-            }
-            m_d->m_cache->enqueue(key);
-            auto itemIter= m_d->m_itemsMap->find(key);
-            if (itemIter == m_d->m_itemsMap->end()){
-                m_d->m_itemsMap->insert(key, ContainerObject<ValueType>(val));
-            }
-            else{
-                if (!itemIter->m_d->m_isAvailable)
-                    removeFromMap(itemIter->m_d->m_data.m_fPos);
-                itemIter->m_d->m_isAvailable = true;
-                itemIter->m_d->m_data.m_val = val;
-            }
-            return true;
-        }
+        
         void swap(HugeContainer<KeyType, ValueType, sorted>& other) Q_DECL_NOTHROW{
             std::swap(m_d, other.m_d);
         }
@@ -439,33 +509,26 @@ namespace HugeContainer{
             m_d->m_memoryMap->insert(0, true);
             m_d->m_cache->clear();
         }
-        ValueType* valueFromBlock(const KeyType& key) const{
-            QByteArray block = readBlock(key);
-            if (block.isEmpty())
-                return nullptr;
-            ValueType* result = new ValueType;
-            QDataStream readerStream(block);
-            readerStream >> *result;
-            return result;
+        ValueType value(const KeyType& key, const ValueType& defaultValue) const{
+            if (contains(key))
+                return value(key);
+            return defaultValue;
         }
-        ValueType* value(const KeyType& key) const
+        const ValueType& value(const KeyType& key) const
         {
             auto valueIter = m_d->m_itemsMap->find(key);
-            if (valueIter == m_d->m_itemsMap->end())
-                return nullptr;
+            Q_ASSERT(valueIter != m_d->m_itemsMap->end());
             if(!valueIter->m_d->m_isAvailable){
                 ValueType* const result = valueFromBlock(key);
-                if (!result)
-                    return nullptr;
-                if (!enqueueValue(key, result))
-                    return nullptr;
+                Q_ASSERT(result);
+                const bool enqueueRes = enqueueValue(key, result);
+                Q_ASSERT(enqueueRes);
             }
             else {
                 m_d->m_cache->removeAll(key);
                 m_d->m_cache->enqueue(key);
             }
-            
-            return valueIter->m_d->m_data.m_val;
+            return *(valueIter->m_d->m_data.m_val);
         }
         ValueType& operator[](const KeyType& key){
             ValueType* result = value(key);
@@ -475,12 +538,18 @@ namespace HugeContainer{
             }
             return *result;
         }
-        ValueType operator[](const KeyType& key) const
-        {
+        ValueType operator[](const KeyType& key) const{
             ValueType* result = value(key);
             if (!result)
                 return ValueType{};
             return *result;
+        }
+        int compressionLevel() const { return m_compressionLevel; }
+        bool setCompressionLevel(int val) { 
+            if (m_compressionLevel == val || val < -1 || val>9)
+                return false;
+            defrag(m_compressionLevel != 0, val);
+            m_compressionLevel = val; 
         }
         bool unite(const HugeContainer<KeyType,ValueType,sorted>& other, bool overWrite = false){
             const auto endItemMap = other.m_d->m_itemsMap->constEnd();
@@ -561,6 +630,10 @@ namespace HugeContainer{
         bool isEmpty() const
         {
             return m_d->m_itemsMap->isEmpty();
+        }
+        bool empty() const
+        {
+            return isEmpty();
         }
         iterator begin(){
             return iterator(this, 0);
@@ -655,46 +728,41 @@ namespace HugeContainer{
             swap(other);
             return *this;
         }
-        double fragmentation() const{
-            return
-                std::accumulate(m_d->m_memoryMap->constBegin(), m_d->m_memoryMap->constEnd() - 1, 0.0, [](double curr, bool val)->double {return val ? (curr + 1.0) : curr; })
-                / static_cast<double>(size());
+        NormalStdContaineType toStdContainer() const{
+            NormalStdContaineType result;
+            for (auto i = constBegin(); i != constEnd(); ++i)
+                result.insert(std::make_pair(i.key(), i.value()));
+            return result;
         }
+        NormalContaineType toQContainer() const{
+            NormalContaineType result;
+            for (auto i = constBegin(); i != constEnd(); ++i)
+                result.insert(i.key(), i.value());
+            return result;
+        }
+        QList<ValueType> values() const
+        {
+            QList<ValueType> result;
+            for (auto i = constBegin(); i != constEnd(); ++i)
+                result.append(i.value());
+            return result;
+        }
+        double fragmentation() const{
+            if (m_d->m_memoryMap->size() <= 1)
+                return 0.0;
+            qint64 result = 0.0;
+            const auto endIter = m_d->m_memoryMap->constEnd() - 1;
+            for (auto i = m_d->m_memoryMap->constBegin(); i != endIter ; ++i) {
+                if (i.value())
+                    result += (i + 1).key() - i.key();
+            }
+
+            return
+                static_cast<double>(result) / static_cast<double>(endIter.key());
+        }
+        
         bool defrag(){
-            if (m_d->m_memoryMap->size()<=1)
-                return true;
-            if (std::all_of(m_d->m_memoryMap->constBegin(), m_d->m_memoryMap->constEnd() - 1, [](bool val) ->bool {return !val; }))
-                return true;
-            auto newFile = std::make_unique<QTemporaryFile>(QDir::tempPath() + QDir::separator() + QStringLiteral("HugeContainerDataXXXXXX"));
-            if (!newFile->open())
-                return false;
-            auto newMap = std::make_unique<QMap<qint64, bool> >();
-            QHash<KeyType, qint64> oldPos;
-            bool allGood=true;
-            for (auto i = m_d->m_itemsMap->begin(); allGood && i != m_d->m_itemsMap->end(); ++i) {
-                if (i->m_d->m_isAvailable)
-                    continue;
-                const auto newMapIter = newMap->insert(newFile->pos(), false);
-                if(newFile->write(readBlock(i.key()))>=0){
-                    oldPos.insert(i.key(), i->m_d->m_data.m_fPos);
-                    i->m_d->m_data.m_fPos = newMapIter.key();
-                }
-                else{
-                    allGood = false;
-                }
-            }
-            if(!allGood){
-                for (auto i = oldPos.constEnd(); i != oldPos.constEnd(); ++i){
-                    auto oldMapIter = m_d->m_itemsMap->find(i.key());
-                    Q_ASSERT(oldMapIter != m_d->m_itemsMap->end());
-                    oldMapIter.value().m_d->m_data.m_fPos = i.value();
-                }
-                return false;
-            }
-            newMap->insert(newFile->pos(), true);
-            m_d->m_device = std::move(newFile);
-            m_d->m_memoryMap = std::move(newMap);
-            return true;
+            return defrag(m_d->m_compressionLevel != 0, m_d->m_compressionLevel);
         }
         bool operator==(const HugeContainer<KeyType, ValueType,sorted>& other){
             if(size()!=other.size())
@@ -709,6 +777,9 @@ namespace HugeContainer{
                     return false;
             }
             return true;
+        }
+        bool operator!=(const HugeContainer<KeyType, ValueType, sorted>& other){
+            return !operator==(other);
         }
         virtual ~HugeContainer() = default;
         using difference_type = qptrdiff;
