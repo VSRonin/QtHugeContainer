@@ -110,8 +110,8 @@ namespace HugeContainer{
         template <class KeyType, class ValueType, bool sorted>
         class HugeContainerData : public QSharedData
         {
-            using ItemMapType = typename std::conditional<sorted, QMap<KeyType, ContainerObject<ValueType> >, QHash<KeyType, ContainerObject<ValueType> > >::type;
         public:
+            using ItemMapType = typename std::conditional<sorted, QMap<KeyType, ContainerObject<ValueType> >, QHash<KeyType, ContainerObject<ValueType> > >::type;
             std::unique_ptr<ItemMapType> m_itemsMap;
             std::unique_ptr<QMap<qint64, bool> > m_memoryMap;
             std::unique_ptr<QTemporaryFile> m_device;
@@ -339,39 +339,37 @@ namespace HugeContainer{
         {
             friend class HugeContainer;
             HugeContainer<KeyType, ValueType, sorted>* m_container;
-            int m_baseIterShift;
-            iterator(const HugeContainer<KeyType, ValueType, sorted>* const  cont, int baseItrShift)
+            using BaseIterType = typename HugeContainerData<KeyType, ValueType, sorted>::ItemMapType::iterator;
+            BaseIterType m_baseIter;
+            iterator(HugeContainer<KeyType, ValueType, sorted>* const  cont, const BaseIterType& baseItr)
                 :m_container(cont)
-                , m_baseIterShift(baseItrShift)
+                , m_baseIter(baseItr)
             {}
         public:
             iterator()
                 :m_container(nullptr)
-                , m_baseIterShift(0)
             {}
             iterator(const iterator& other) = default;
             iterator& operator=(const iterator& other) = default;
-            iterator operator+(int j) const {  return iterator(m_container, m_baseIterShift + j);  }
-            iterator &operator++() { ++m_baseIterShift; return *this; }
-            iterator operator++(int) { iterator result(*this); ++m_baseIterShift; return result; }
-            iterator &operator+=(int j) { m_baseIterShift += j; return *this; }
-            iterator operator-(int j) const { return iterator(m_container, m_baseIterShift - j); }
-            iterator &operator--() { --m_baseIterShift; return *this; }
-            iterator operator--(int) { iterator result(*this); --m_baseIterShift; return result; }
-            iterator &operator-=(int j) { m_baseIterShift -= j; return *this; }
-            const KeyType& key() const { return (m_container->m_d->m_itemsMap->begin() + m_baseIterShift).key(); }
+            iterator operator+(int j) const { return iterator(m_container, m_baseIter + j); }
+            iterator &operator++() { ++m_baseIter; return *this; }
+            iterator operator++(int) { iterator result(*this); ++m_baseIter; return result; }
+            iterator &operator+=(int j) { m_baseIter += j; return *this; }
+            iterator operator-(int j) const { return iterator(m_container, m_baseIter - j); }
+            iterator &operator--() { --m_baseIter; return *this; }
+            iterator operator--(int) { iterator result(*this); --m_baseIter; return result; }
+            iterator &operator-=(int j) { m_baseIter -= j; return *this; }
+            const KeyType& key() const { return m_baseIter.key(); }
             ValueType& operator*() const { return value(); }
             ValueType& value() const { 
-                return m_container->value(key());
+                return m_container->operator[](key());
             }
             ValueType* operator->() const
             {
-                const ValueType* const result = m_container->value(key());
-                Q_ASSERT(result);
-                return result;
+                return &m_container->value(key());
             }
             bool operator!=(const iterator &other) const { return !operator==(other); }
-            bool operator==(const iterator &other) const { return m_container == other.m_container &&  m_baseIterShift == other.m_baseIterShift; }
+            bool operator==(const iterator &other) const { return m_container == other.m_container &&  m_baseIter == other.m_baseIter; }
         };
         using Iterator = iterator;
         
@@ -379,28 +377,28 @@ namespace HugeContainer{
         class const_iterator
         {
             friend class HugeContainer;
+            using BaseIterType = typename HugeContainerData<KeyType, ValueType, sorted>::ItemMapType::const_iterator;
             const HugeContainer<KeyType, ValueType, sorted>* m_container;
-            int m_baseIterShift;
-            const_iterator(const HugeContainer<KeyType, ValueType, sorted>* const  cont, int baseItrShift)
+            BaseIterType m_baseIter;
+            const_iterator(const HugeContainer<KeyType, ValueType, sorted>* const  cont, const BaseIterType& baseItr)
                 :m_container(cont)
-                , m_baseIterShift(baseItrShift)
+                , m_baseIter(baseItr)
             {}
         public:
             const_iterator() 
                 :m_container(nullptr)
-                , m_baseIterShift(0)
             {}
             const_iterator(const const_iterator& other) = default;
             const_iterator& operator=(const const_iterator& other) = default;
-            const_iterator operator+(int j) const { return const_iterator(m_container, m_baseIterShift + j); }
-            const_iterator &operator++() { ++m_baseIterShift; return *this; }
-            const_iterator operator++(int) { const_iterator result(*this); ++m_baseIterShift; return result; }
-            const_iterator &operator+=(int j) { m_baseIterShift += j; return *this; }
-            const_iterator operator-(int j) const { return const_iterator(m_container, m_baseIterShift - j); }
-            const_iterator &operator--() { --m_baseIterShift; return *this; }
-            const_iterator operator--(int) { const_iterator result(*this); --m_baseIterShift; return result; }
-            const_iterator &operator-=(int j) { m_baseIterShift -= j; return *this; }
-            const KeyType& key() const { return (m_container->m_d->m_itemsMap->constBegin() + m_baseIterShift).key(); }
+            const_iterator operator+(int j) const { return const_iterator(m_container, m_baseIter + j); }
+            const_iterator &operator++() { ++m_baseIter; return *this; }
+            const_iterator operator++(int) { const_iterator result(*this); ++m_baseIter; return result; }
+            const_iterator &operator+=(int j) { m_baseIter += j; return *this; }
+            const_iterator operator-(int j) const { return const_iterator(m_container, m_baseIter - j); }
+            const_iterator &operator--() { --m_baseIter; return *this; }
+            const_iterator operator--(int) { const_iterator result(*this); --m_baseIter; return result; }
+            const_iterator &operator-=(int j) { m_baseIter -= j; return *this; }
+            const KeyType& key() const { return m_baseIter.key(); }
             const ValueType& operator*() const { return value(); }
             const ValueType& value() const
             {
@@ -411,7 +409,7 @@ namespace HugeContainer{
                 return &(m_container->value(key()));
             }
             bool operator!=(const const_iterator &other) const { return !operator==(other); }
-            bool operator==(const const_iterator &other) const { return m_container == other.m_container &&  m_baseIterShift == other.m_baseIterShift; }
+            bool operator==(const const_iterator &other) const { return m_container == other.m_container &&  m_baseIter == other.m_baseIter; }
         };
         using ConstIterator = const_iterator;
         class key_iterator
@@ -422,10 +420,7 @@ namespace HugeContainer{
                 :m_base(base)
             {}
         public:
-            key_iterator()
-                :m_container(nullptr)
-                , m_baseIterShift(0)
-            {}
+            key_iterator() = default;
             key_iterator(const key_iterator& other) = default;
             key_iterator& operator=(const key_iterator& other) = default;
             key_iterator operator+(int j) const { return key_iterator(m_base+1); }
@@ -439,8 +434,8 @@ namespace HugeContainer{
             const_iterator base() const { return m_base; }
             const KeyType& operator*() const { return m_base.key(); }
             const KeyType* operator->() const { return &(m_base.key()); }
-            bool operator!=(const iterator &other) const { return !operator==(other); }
-            bool operator==(const iterator &other) const { return m_base == other.m_base; }
+            bool operator!=(const key_iterator &other) const { return !operator==(other); }
+            bool operator==(const key_iterator &other) const { return m_base == other.m_base; }
         };
         HugeContainer(const NormalStdContaineType& list){
             const auto listBegin = std::begin(list);
@@ -561,13 +556,25 @@ namespace HugeContainer{
             }
             return *(valueIter->m_d->m_data.m_val);
         }
+        
         ValueType& operator[](const KeyType& key){
-            ValueType* result = value(key);
-            if (!result) {
+            auto valueIter = m_d->m_itemsMap->find(key);
+            if (valueIter == m_d->m_itemsMap->end()){
                 setValue(key, ValueType());
-                result = value(key);
+                valueIter = m_d->m_itemsMap->find(key);
             }
-            return *result;
+            Q_ASSERT(valueIter != m_d->m_itemsMap->end());
+            if (!valueIter->m_d->m_isAvailable) {
+                ValueType* const result = valueFromBlock(key);
+                Q_ASSERT(result);
+                const bool enqueueRes = enqueueValue(key, result);
+                Q_ASSERT(enqueueRes);
+            }
+            else {
+                m_d->m_cache->removeAll(key);
+                m_d->m_cache->enqueue(key);
+            }
+            return *(valueIter->m_d->m_data.m_val);
         }
         ValueType operator[](const KeyType& key) const{
             ValueType* result = value(key);
@@ -674,7 +681,7 @@ namespace HugeContainer{
             return key_iterator(constEnd());
         }
         iterator begin(){
-            return iterator(this, 0);
+            return iterator(this, m_d->m_itemsMap->begin());
         }
         
         const_iterator begin() const
@@ -687,15 +694,15 @@ namespace HugeContainer{
         }
         const_iterator constBegin() const
         {
-            return const_iterator(this, 0);
+            return const_iterator(this, m_d->m_itemsMap->constBegin());
         }
         iterator end()
         {
-            return iterator(this, m_d->m_itemsMap->size());
+            return iterator(this, m_d->m_itemsMap->end());
         }
         const_iterator constEnd() const
         {
-            return const_iterator(this, m_d->m_itemsMap->size());
+            return const_iterator(this, m_d->m_itemsMap->constEnd());
         }
         const_iterator end() const
         {
@@ -707,17 +714,20 @@ namespace HugeContainer{
         }
         iterator find(const KeyType& val)
         {
-            return iterator(this, std::distance(m_d->m_itemsMap->begin(), m_d->m_itemsMap->find(val)));
+            return iterator(this, m_d->m_itemsMap->find(val));
         }
         const_iterator constFind(const KeyType& val)
         {
-            return const_iterator(this, std::distance(m_d->m_itemsMap->constBegin(), m_d->m_itemsMap->constFind(val)));
+            return const_iterator(this, m_d->m_itemsMap->constFind(val));
         }
         iterator erase(iterator pos)
         {
-            if (pos != end())
-                remove(pos.key());
-            return pos;
+            Q_ASSERT(pos.m_container == this);
+            if (pos == end())
+                return pos;
+            const auto result = pos + 1;
+            remove(pos.key());
+            return result;
         }
         ValueType take(const KeyType& key)
         {
@@ -846,7 +856,7 @@ namespace HugeContainer{
             HugeHash<quint32, ValueType> m_container;
             quint32 m_indexHint;
         };
-        QSharedDataPointer<HugeListData> m_d;
+        QSharedDataPointer<HugeListData<ValueType>> m_d;
     public:
         HugeList()
             :m_d(new HugeListData<ValueType>)
