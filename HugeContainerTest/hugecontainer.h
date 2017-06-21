@@ -37,7 +37,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <memory>
 #include <unordered_map>
 
-namespace HugeContainer{
+namespace HugeContainers{
     //! Removes any leftover data from previous crashes
     inline void cleanUp(){
         QDirIterator cleanIter{ QDir::tempPath(), QStringList(QStringLiteral("HugeContainerData*")), QDir::Files | QDir::Writable | QDir::CaseSensitive | QDir::NoDotAndDotDot };
@@ -165,8 +165,12 @@ namespace HugeContainer{
         }
         bool defrag(bool readCompressed, int writeCompression)
         {
-            if (m_d->m_memoryMap->size() <= 1)
+            if (isEmpty()) {
+                if(!m_d->m_device->size()==0)
+                    clear();
                 return true;
+            }
+            Q_ASSERT(m_d->m_memoryMap->size() > 1);
             if (std::all_of(m_d->m_memoryMap->constBegin(), m_d->m_memoryMap->constEnd() - 1, [](bool val) ->bool {return !val; }))
                 return true;
             auto newFile = std::make_unique<QTemporaryFile>(QDir::tempPath() + QDir::separator() + QStringLiteral("HugeContainerDataXXXXXX"));
@@ -274,6 +278,7 @@ namespace HugeContainer{
                 Q_ASSERT(valToWrite->m_d->m_isAvailable);
                 const qint64 result = writeElementInMap(*(valToWrite->m_d->m_data.m_val));
                 if (result>=0) {
+                    delete valToWrite->m_d->m_data.m_val;
                     valToWrite->m_d->m_isAvailable = false;
                     valToWrite->m_d->m_data.m_fPos = result;
                 }
@@ -437,7 +442,9 @@ namespace HugeContainer{
             bool operator!=(const key_iterator &other) const { return !operator==(other); }
             bool operator==(const key_iterator &other) const { return m_base == other.m_base; }
         };
-        HugeContainer(const NormalStdContaineType& list){
+        HugeContainer(const NormalStdContaineType& list)
+            :HugeContainer()
+        {
             const auto listBegin = std::begin(list);
             const auto listEnd = std::end(list);
             auto prevIter = std::begin(list);
@@ -451,7 +458,7 @@ namespace HugeContainer{
             }
         }
         HugeContainer(std::initializer_list<std::pair<KeyType, ValueType> > list)
-            :HugeContainer(NormalContaineType(list))
+            :HugeContainer()
         {
             const auto listBegin = std::begin(list);
             const auto listEnd = std::end(list);
@@ -795,6 +802,7 @@ namespace HugeContainer{
                 result.append(i.value());
             return result;
         }
+        //! 
         double fragmentation() const{
             if (m_d->m_memoryMap->size() <= 1)
                 return 0.0;
@@ -839,6 +847,8 @@ namespace HugeContainer{
     using HugeMap = HugeContainer<KeyType, ValueType, true>;
     template <class KeyType, class ValueType>
     using HugeHash = HugeContainer<KeyType, ValueType, false>;
+    
+    /*
     template <class ValueType>
     class HugeList{
         template <class ValueType>
@@ -870,5 +880,8 @@ namespace HugeContainer{
             std::swap(m_d, other.m_d);
         }
     };
+    */
 }
+Q_DECLARE_METATYPE_TEMPLATE_2ARG(HugeContainers::HugeHash)
+Q_DECLARE_METATYPE_TEMPLATE_2ARG(HugeContainers::HugeMap)
 #endif // hugecontainer_h__
