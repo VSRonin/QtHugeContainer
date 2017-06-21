@@ -89,7 +89,6 @@ namespace HugeContainer{
                 :m_isAvailable(other.m_isAvailable)
                 , m_data(other.m_data.m_fPos)
             {
-                qDebug("ContainerObjectData detached");
                 if (m_isAvailable)
                     m_data.m_val = new ValueType(*(other.m_data.m_val));
             }
@@ -140,7 +139,6 @@ namespace HugeContainer{
                 , m_maxCache(other.m_maxCache)
                 , m_compressionLevel(other.m_compressionLevel)
             {
-                qDebug("HugeContainerData detached");
                 if (!m_device->open())
                     Q_ASSERT_X(false, "HugeContainer::HugeContainer", "Unable to create a temporary file");
                 other.m_device->seek(0);
@@ -336,20 +334,24 @@ namespace HugeContainer{
             return result;
         }
     public:
+        
         class iterator
         {
             friend class HugeContainer;
-            const HugeContainer<KeyType, ValueType, sorted>* m_container;
+            HugeContainer<KeyType, ValueType, sorted>* m_container;
             int m_baseIterShift;
             iterator(const HugeContainer<KeyType, ValueType, sorted>* const  cont, int baseItrShift)
                 :m_container(cont)
                 , m_baseIterShift(baseItrShift)
             {}
         public:
-            iterator();
+            iterator()
+                :m_container(nullptr)
+                , m_baseIterShift(0)
+            {}
             iterator(const iterator& other) = default;
             iterator& operator=(const iterator& other) = default;
-            iterator operator+(int j) const { return iterator(m_container, m_baseIterShift + j); }
+            iterator operator+(int j) const {  return iterator(m_container, m_baseIterShift + j);  }
             iterator &operator++() { ++m_baseIterShift; return *this; }
             iterator operator++(int) { iterator result(*this); ++m_baseIterShift; return result; }
             iterator &operator+=(int j) { m_baseIterShift += j; return *this; }
@@ -384,7 +386,10 @@ namespace HugeContainer{
                 , m_baseIterShift(baseItrShift)
             {}
         public:
-            const_iterator();
+            const_iterator() 
+                :m_container(nullptr)
+                , m_baseIterShift(0)
+            {}
             const_iterator(const const_iterator& other) = default;
             const_iterator& operator=(const const_iterator& other) = default;
             const_iterator operator+(int j) const { return const_iterator(m_container, m_baseIterShift + j); }
@@ -403,14 +408,40 @@ namespace HugeContainer{
             }
             const ValueType* operator->() const
             {
-                const ValueType* const result = m_container->value(key());
-                Q_ASSERT(result);
-                return result;
+                return &(m_container->value(key()));
             }
             bool operator!=(const const_iterator &other) const { return !operator==(other); }
             bool operator==(const const_iterator &other) const { return m_container == other.m_container &&  m_baseIterShift == other.m_baseIterShift; }
         };
         using ConstIterator = const_iterator;
+        class key_iterator
+        {
+            friend class HugeContainer;
+            const_iterator m_base;
+            key_iterator(const const_iterator& base)
+                :m_base(base)
+            {}
+        public:
+            key_iterator()
+                :m_container(nullptr)
+                , m_baseIterShift(0)
+            {}
+            key_iterator(const key_iterator& other) = default;
+            key_iterator& operator=(const key_iterator& other) = default;
+            key_iterator operator+(int j) const { return key_iterator(m_base+1); }
+            key_iterator &operator++() { ++m_base; return *this; }
+            key_iterator operator++(int) { key_iterator result(*this); ++m_base; return result; }
+            key_iterator &operator+=(int j) { m_base += j; return *this; }
+            key_iterator operator-(int j) const { return key_iterator(m_base - j); }
+            key_iterator &operator--() { --m_base; return *this; }
+            key_iterator operator--(int) { key_iterator result(*this); --m_base; return result; }
+            key_iterator &operator-=(int j) { m_base -= j; return *this; }
+            const_iterator base() const { return m_base; }
+            const KeyType& operator*() const { return m_base.key(); }
+            const KeyType* operator->() const { return &(m_base.key()); }
+            bool operator!=(const iterator &other) const { return !operator==(other); }
+            bool operator==(const iterator &other) const { return m_base == other.m_base; }
+        };
         HugeContainer(const NormalStdContaineType& list){
             const auto listBegin = std::begin(list);
             const auto listEnd = std::end(list);
@@ -635,6 +666,13 @@ namespace HugeContainer{
         {
             return isEmpty();
         }
+        key_iterator keyBegin() const{
+            return key_iterator(constBegin());
+        }
+        key_iterator keyEnd() const
+        {
+            return key_iterator(constEnd());
+        }
         iterator begin(){
             return iterator(this, 0);
         }
@@ -791,5 +829,36 @@ namespace HugeContainer{
     using HugeMap = HugeContainer<KeyType, ValueType, true>;
     template <class KeyType, class ValueType>
     using HugeHash = HugeContainer<KeyType, ValueType, false>;
+    template <class ValueType>
+    class HugeList{
+        template <class ValueType>
+        struct HugeListData : public QSharedData
+        {
+            HugeListData()
+                :m_indexHint(0)
+            {}
+            HugeListData(const HugeListData& other)
+                :m_indexHint(other.m_indexHint)
+                , m_container(other.m_container)
+                , m_indexHint(other.m_indexHint)
+            {}
+            QList<quint32> m_indexList;
+            HugeHash<quint32, ValueType> m_container;
+            quint32 m_indexHint;
+        };
+        QSharedDataPointer<HugeListData> m_d;
+    public:
+        HugeList()
+            :m_d(new HugeListData<ValueType>)
+        {}
+        HugeList(const HugeList<ValueType>& other) = default;
+        HugeList& operator=(HugeList<ValueType>&& other) Q_DECL_NOTHROW {
+            swap(other);
+            return *this;
+        }
+        void swap(HugeList<ValueType> &other) Q_DECL_NOTHROW {
+            std::swap(m_d, other.m_d);
+        }
+    };
 }
 #endif // hugecontainer_h__
