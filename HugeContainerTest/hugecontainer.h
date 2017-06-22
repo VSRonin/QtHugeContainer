@@ -165,11 +165,8 @@ namespace HugeContainers{
         }
         bool defrag(bool readCompressed, int writeCompression)
         {
-            if (isEmpty()) {
-                if(!m_d->m_device->size()==0)
-                    clear();
+            if (isEmpty()) 
                 return true;
-            }
             Q_ASSERT(m_d->m_memoryMap->size() > 1);
             if (std::all_of(m_d->m_memoryMap->constBegin(), m_d->m_memoryMap->constEnd() - 1, [](bool val) ->bool {return !val; }))
                 return true;
@@ -454,7 +451,7 @@ namespace HugeContainers{
             for (auto i = listBegin; i != listEnd; ++i) {
                 if (contains(i->first))
                     continue;
-                setValue(i->first, i->second);
+                insert(i->first, i->second);
                 prevIter = i;
             }
         }
@@ -467,7 +464,7 @@ namespace HugeContainers{
             for (auto i = listBegin; i != listEnd; ++i) {
                 if (contains(i->first))
                     continue;
-                setValue(i->first, i->second);
+                insert(i->first, i->second);
                 prevIter = i;
             }
         }
@@ -477,7 +474,7 @@ namespace HugeContainers{
             for (auto i = list.constBegin(); i != list.constEnd(); ++i) {
                 if (contains(i.key()))
                     continue;
-                setValue(i.key(), i.value());
+                insert(i.key(), i.value());
             }
         }
         QList<KeyType> keys() const
@@ -560,7 +557,7 @@ namespace HugeContainers{
         ValueType& operator[](const KeyType& key){
             auto valueIter = m_d->m_itemsMap->find(key);
             if (valueIter == m_d->m_itemsMap->end()){
-                setValue(key, ValueType());
+                insert(key, ValueType());
                 valueIter = m_d->m_itemsMap->find(key);
             }
             Q_ASSERT(valueIter != m_d->m_itemsMap->end());
@@ -718,7 +715,11 @@ namespace HugeContainers{
         {
             return iterator(this, m_d->m_itemsMap->find(val));
         }
-        const_iterator constFind(const KeyType& val)
+        const_iterator find(const KeyType& val) const
+        {
+            return const_iterator(this, m_d->m_itemsMap->find(val));
+        }
+        const_iterator constFind(const KeyType& val) const
         {
             return const_iterator(this, m_d->m_itemsMap->constFind(val));
         }
@@ -797,7 +798,6 @@ namespace HugeContainers{
                 result.append(i.value());
             return result;
         }
-        //! 
         double fragmentation() const{
             if (m_d->m_memoryMap->size() <= 1)
                 return 0.0;
@@ -807,9 +807,7 @@ namespace HugeContainers{
                 if (i.value())
                     result += (i + 1).key() - i.key();
             }
-
-            return
-                static_cast<double>(result) / static_cast<double>(endIter.key());
+            return static_cast<double>(result) / static_cast<double>(endIter.key());
         }
         
         bool defrag(){
