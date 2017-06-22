@@ -320,7 +320,7 @@ namespace HugeContainers{
         }
         QByteArray readBlock(const KeyType& key, bool compressed) const
         {
-            if (!m_d->m_device->isReadable())
+            if (Q_UNLIKELY(!m_d->m_device->isReadable()))
                 return QByteArray();
             m_d->m_device->setTextModeEnabled(false);
             auto itemIter = m_d->m_itemsMap->constFind(key);
@@ -518,13 +518,9 @@ namespace HugeContainers{
                 m_d->m_itemsMap->erase(itemIter);
             }
         }
-        bool setValue(const KeyType& key, const ValueType& val)
-        {
-            return enqueueValue(key,new ValueType(val));
-        }
         iterator insert(const KeyType &key, const ValueType &val)
         {
-            if (setValue(key, val))
+            if (enqueueValue(key, new ValueType(val)))
                 return find(key);
             return end();
         }
@@ -581,10 +577,9 @@ namespace HugeContainers{
             return *(valueIter->m_d->m_data.m_val);
         }
         ValueType operator[](const KeyType& key) const{
-            ValueType* result = value(key);
-            if (!result)
-                return ValueType{};
-            return *result;
+            if(contains(key))
+                return value(key);
+            return ValueType{};
         }
         int compressionLevel() const { return m_compressionLevel; }
         bool setCompressionLevel(int val) { 
