@@ -244,6 +244,10 @@ void tst_HugeMap::testErase()
     QVERIFY(container.contains(0));
     QVERIFY(container.contains(1));
     QVERIFY(!container.contains(2));
+    QCOMPARE(container2.size(), 3);
+    QVERIFY(container2.contains(0));
+    QVERIFY(container2.contains(1));
+    QVERIFY(container2.contains(2));
 
     auto iterRemove2 = container2.begin();
     iterRemove2 = container2.erase(iterRemove2);
@@ -352,4 +356,227 @@ void tst_HugeMap::testFirstKey()
     container.insert(-1,QStringLiteral("-1"));
     QCOMPARE(container.firstKey(), container.constBegin().key());
     QCOMPARE(container.firstKey(), KeyClass(-1));
+}
+
+void tst_HugeMap::testEquality()
+{
+    const HugeMap<KeyClass, ValueClass> container{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    HugeMap<KeyClass, ValueClass> container2{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    auto container3 = container;
+    QVERIFY(container == container2);
+    QVERIFY(container == container3);
+    container2.remove(2);
+    QVERIFY(container != container2);
+    QVERIFY(container == container3);
+    container3.insert(0,QStringLiteral("zero1"));
+    container2.insert(2, QStringLiteral("two"));
+    QVERIFY(container == container2);
+    QVERIFY(container != container3);
+}
+
+void tst_HugeMap::testSerialisation()
+{
+    
+    const HugeMap<int, ValueClass> container{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    HugeMap<int, ValueClass> container2;
+    QFile serialFile("testSerial.dat");
+    
+    QVERIFY(serialFile.open(QFile::WriteOnly));
+    QDataStream writeStream(&serialFile);
+    writeStream << container;
+    serialFile.close();
+    QVERIFY(serialFile.open(QFile::ReadOnly));
+    QDataStream readStream(&serialFile);
+    readStream >> container2;
+    serialFile.close();
+    QVERIFY(container == container2);
+    container2.clear();
+    QVERIFY(container != container2);
+    
+    
+    serialFile.remove();
+}
+
+void tst_HugeMap::testSerialisationOldVersion()
+{
+    const HugeMap<int, ValueClass> container{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    HugeMap<int, ValueClass> container2;
+    QFile serialFile("testSerial.dat");
+    QVERIFY(serialFile.open(QFile::WriteOnly));
+    QDataStream writeStream(&serialFile);
+    writeStream.setVersion(QDataStream::Qt_4_0);
+    writeStream << container;
+    serialFile.close();
+    QVERIFY(serialFile.open(QFile::ReadOnly));
+    QDataStream readStream(&serialFile);
+    readStream.setVersion(QDataStream::Qt_4_0);
+    readStream >> container2;
+    serialFile.close();
+    QVERIFY(container == container2);
+    serialFile.remove();
+}
+
+
+void tst_HugeMap::benchHugeInsert_data()
+{
+    QTest::addColumn<HugeMap<int, QString> >("container");
+    HugeMap<int, QString> container;
+    const int totalSize = 100;
+    container.setMaxCache(0);
+    QTest::newRow("No Cache") << container;
+    container.setMaxCache(totalSize/2);
+    QTest::newRow("Half Cache") << container;
+    container.setMaxCache(totalSize);
+    QTest::newRow("Full Cache") << container;
+}
+
+void tst_HugeMap::benchHugeInsert()
+{
+    QFETCH(SINGLE_ARG(HugeMap<int, QString>), container);
+    QBENCHMARK{
+        for (int i = 0; i < benchContSize; ++i)
+        container.insert(i, QString::number(i));
+    }
+}
+
+void tst_HugeMap::benchHugeReadKey()
+{
+    QFETCH(SINGLE_ARG(HugeMap<int, QString>), container);
+    QString valueRead;
+    for (int i = 0; i < benchContSize; ++i)
+        container.insert(i, QString::number(i));
+    QBENCHMARK{
+        for (int i = 0; i < benchContSize; ++i)
+            valueRead = container.value(i);
+    }
+}
+
+void tst_HugeMap::benchHugeReadIter()
+{
+    QFETCH(SINGLE_ARG(HugeMap<int, QString>), container);
+    for (int i = 0; i < benchContSize; ++i)
+        container.insert(i, QString::number(i));
+    QString valueRead;
+    const auto contEnd = container.constEnd();
+    QBENCHMARK{
+        for (auto i = container.constBegin(); i != contEnd; ++i)
+        valueRead = i.value();
+    }
+}
+
+void tst_HugeMap::benchHugeReadKeyReverse()
+{
+    QFETCH(SINGLE_ARG(HugeMap<int, QString>), container);
+    for(int i = 0; i < benchContSize; ++i)
+        container.insert(i, QString::number(i));
+    QString valueRead;
+    QBENCHMARK{
+        for (int i = benchContSize-1; i >=0; --i)
+            valueRead = container.value(i);
+    }
+}
+
+void tst_HugeMap::benchHugeReadIterReverse()
+{
+    QFETCH(SINGLE_ARG(HugeMap<int, QString>), container);
+    for (int i = 0; i < benchContSize; ++i)
+        container.insert(i, QString::number(i));
+    QString valueRead;
+    const auto contEnd = container.constBegin();
+    QBENCHMARK{
+        for (auto i = container.constEnd()-1; i != contEnd; --i)
+            valueRead = i.value();
+    }
+}
+
+void tst_HugeMap::benchQtInsert()
+{
+    QMap<int, QString> benchQMap;
+    QBENCHMARK{
+        for (int i = 0; i < benchContSize; ++i)
+            benchQMap.insert(i, QString::number(i));
+    }
+}
+
+void tst_HugeMap::benchQtReadKey()
+{
+    QMap<int, QString> benchQMap;
+    for (int i = 0; i < benchContSize; ++i)
+        benchQMap.insert(i, QString::number(i));
+    QString valueRead;
+    QBENCHMARK{
+        for (int i = 0; i < benchContSize; ++i)
+            valueRead = benchQMap.value(i);
+    }
+}
+
+void tst_HugeMap::benchQtReadIter()
+{
+    QMap<int, QString> benchQMap;
+    for (int i = 0; i < benchContSize; ++i)
+        benchQMap.insert(i, QString::number(i));
+    QString valueRead;
+    const auto contQtEnd = benchQMap.constEnd();
+    QBENCHMARK{
+        for (auto i = benchQMap.constBegin(); i != contQtEnd; ++i)
+            valueRead = i.value();
+    }
+}
+
+void tst_HugeMap::benchStdInsert()
+{
+    std::map<int, QString> benchStdMap;
+    QBENCHMARK{
+        for (int i = 0; i < benchContSize; ++i)
+            benchStdMap.insert(std::make_pair(i, QString::number(i)));
+    }
+}
+
+void tst_HugeMap::benchStdReadKey()
+{
+    std::map<int, QString> benchStdMap;
+    for (int i = 0; i < benchContSize; ++i)
+        benchStdMap.insert(std::make_pair(i, QString::number(i)));
+    QString valueRead;
+    QBENCHMARK{
+        for (int i = 0; i < benchContSize; ++i)
+            valueRead = benchStdMap[i];
+    }
+}
+
+void tst_HugeMap::benchStdReadIter()
+{
+    std::map<int, QString> benchStdMap;
+    for (int i = 0; i < benchContSize; ++i)
+        benchStdMap.insert(std::make_pair(i, QString::number(i)));
+    QString valueRead;
+    const auto contStdEnd = benchStdMap.cend();
+    QBENCHMARK{
+        for (auto i = benchStdMap.cbegin(); i != contStdEnd; ++i)
+            valueRead = i->second;
+    }
 }
