@@ -245,8 +245,10 @@ namespace HugeContainers{
             if (fileIter != m_d->m_memoryMap->begin()) {
                 if ((fileIter - 1).value()) {
                     fileIter = m_d->m_memoryMap->erase(fileIter);
+                    Q_ASSERT(fileIter != m_d->m_memoryMap->end());
                     if (fileIter.value())
                         m_d->m_memoryMap->erase(fileIter);
+                    m_d->m_device->resize(m_d->m_memoryMap->lastKey());
                     return;
                 }
             }
@@ -255,6 +257,7 @@ namespace HugeContainers{
                     m_d->m_memoryMap->erase(fileIter + 1);
             }
             fileIter.value() = true;
+            m_d->m_device->resize(m_d->m_memoryMap->lastKey());
         }
         qint64 writeElementInMap(const ValueType& val) const
         {
@@ -312,10 +315,10 @@ namespace HugeContainers{
             }
             return true;
         }
-        QByteArray readBlock(KeyType key) const{
+        QByteArray readBlock(const KeyType& key) const{
             return readBlock(key, m_d->m_compressionLevel != 0);
         }
-        QByteArray readBlock(KeyType key, bool compressed) const
+        QByteArray readBlock(const KeyType& key, bool compressed) const
         {
             if (!m_d->m_device->isReadable())
                 return QByteArray();
@@ -449,10 +452,8 @@ namespace HugeContainers{
             const auto listEnd = std::end(list);
             auto prevIter = std::begin(list);
             for (auto i = listBegin; i != listEnd; ++i) {
-                if (i != listBegin) {
-                    if (i->first == prevIter->first)
-                        continue;
-                }
+                if (contains(i->first))
+                    continue;
                 setValue(i->first, i->second);
                 prevIter = i;
             }
@@ -464,10 +465,8 @@ namespace HugeContainers{
             const auto listEnd = std::end(list);
             auto prevIter = std::begin(list);
             for (auto i = listBegin; i != listEnd; ++i) {
-                if (i != listBegin) {
-                    if (i->first == prevIter->first)
-                        continue;
-                }
+                if (contains(i->first))
+                    continue;
                 setValue(i->first, i->second);
                 prevIter = i;
             }
@@ -476,10 +475,8 @@ namespace HugeContainers{
             :HugeContainer()
         {
             for (auto i = list.constBegin(); i != list.constEnd(); ++i) {
-                if (i != list.constBegin()) {
-                    if (i.key() == (i - 1).key())
-                        continue;
-                }
+                if (contains(i.key()))
+                    continue;
                 setValue(i.key(), i.value());
             }
         }
@@ -533,15 +530,15 @@ namespace HugeContainers{
         }
         void clear()
         {
-            if (m_d->m_device->remove()) {
-                if (!m_d->m_device->open())
-                    Q_ASSERT_X(false, "HugeContainer::HugeContainer", "Unable to create a temporary file");
+            if (!m_d->m_device->resize(0)) {
+                Q_ASSERT_X(false, "HugeContainer::HugeContainer", "Unable to create a temporary file");
             }
             m_d->m_itemsMap->clear();
             m_d->m_memoryMap->clear();
             m_d->m_memoryMap->insert(0, true);
             m_d->m_cache->clear();
         }
+
         ValueType value(const KeyType& key, const ValueType& defaultValue) const{
             if (contains(key))
                 return value(key);
@@ -671,6 +668,9 @@ namespace HugeContainers{
         int size() const
         {
             return m_d->m_itemsMap->size();
+        }
+        qint64 fileSize() const{
+            return m_d->m_device->size();
         }
         bool isEmpty() const
         {
