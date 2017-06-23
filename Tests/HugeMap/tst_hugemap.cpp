@@ -229,6 +229,74 @@ void tst_HugeMap::testSize()
     testGenericSize(&HugeMap<KeyClass, ValueClass>::size);
 }
 
+void tst_HugeMap::testSwap()
+{
+    HugeMap<KeyClass, ValueClass> container1{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    HugeMap<KeyClass, ValueClass> container2{
+        std::make_pair(3, QStringLiteral("three"))
+        , std::make_pair(5, QStringLiteral("five"))
+        , std::make_pair(6, QStringLiteral("six"))
+        , std::make_pair(7, QStringLiteral("seven"))
+        , std::make_pair(9, QStringLiteral("nine"))
+    };
+    const auto container3 = container1;
+    const auto container4 = container2;
+
+    std::swap(container1, container2);
+    
+    QCOMPARE(container1.value(KeyClass(3), ValueClass()), ValueClass(QStringLiteral("three")));
+    QCOMPARE(container1.value(KeyClass(2), ValueClass()), ValueClass());
+    QCOMPARE(container2.value(KeyClass(2), ValueClass()), ValueClass(QStringLiteral("two")));
+    QCOMPARE(container2.value(KeyClass(3), ValueClass()), ValueClass());
+
+    QCOMPARE(container3, container2);
+    QCOMPARE(container4, container1);
+}
+
+void tst_HugeMap::testToQtContainer()
+{
+    const HugeMap<KeyClass, ValueClass> container1{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    const auto qtContainer = container1.toQContainer();
+    QCOMPARE(qtContainer.size(), 5);
+    QCOMPARE(qtContainer.value(KeyClass(0), ValueClass()), ValueClass(QStringLiteral("zero")));
+    QCOMPARE(qtContainer.value(KeyClass(1), ValueClass()), ValueClass(QStringLiteral("one")));
+    QCOMPARE(qtContainer.value(KeyClass(2), ValueClass()), ValueClass(QStringLiteral("two")));
+    QCOMPARE(qtContainer.value(KeyClass(4), ValueClass()), ValueClass(QStringLiteral("four")));
+    QCOMPARE(qtContainer.value(KeyClass(8), ValueClass()), ValueClass(QStringLiteral("eight")));
+}
+
+void tst_HugeMap::testToStdContainer()
+{
+    const HugeMap<KeyClass, ValueClass> container1{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    auto stdContainer = container1.toStdContainer();
+    QCOMPARE(stdContainer.size(), 5U);
+    QCOMPARE(stdContainer[KeyClass(0)], ValueClass(QStringLiteral("zero")));
+    QCOMPARE(stdContainer[KeyClass(1)], ValueClass(QStringLiteral("one")));
+    QCOMPARE(stdContainer[KeyClass(2)], ValueClass(QStringLiteral("two")));
+    QCOMPARE(stdContainer[KeyClass(4)], ValueClass(QStringLiteral("four")));
+    QCOMPARE(stdContainer[KeyClass(8)], ValueClass(QStringLiteral("eight")));
+    QCOMPARE(stdContainer[KeyClass(9)], ValueClass());
+    QCOMPARE(stdContainer.size(), 6U);
+}
+
 void tst_HugeMap::testUniqueKeys()
 {
     const HugeMap<KeyClass, ValueClass> container{
@@ -245,6 +313,87 @@ void tst_HugeMap::testUniqueKeys()
     QCOMPARE(containerKeys.at(2), KeyClass(2));
     QCOMPARE(containerKeys.at(3), KeyClass(4));
     QCOMPARE(containerKeys.last(), KeyClass(8));
+}
+
+void tst_HugeMap::testUnite()
+{
+    HugeMap<KeyClass, ValueClass> container1{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    const HugeMap<KeyClass, ValueClass> container2{
+        std::make_pair(3, QStringLiteral("three"))
+        , std::make_pair(5, QStringLiteral("five"))
+        , std::make_pair(6, QStringLiteral("six"))
+        , std::make_pair(7, QStringLiteral("seven"))
+        , std::make_pair(0, QStringLiteral("zero1"))
+    };
+
+    auto container3 = container1;
+
+    QVERIFY(container1.unite(container2, false));
+    QCOMPARE(container1.size(), 9);
+    QCOMPARE(container1.value(KeyClass(0), ValueClass()), ValueClass(QStringLiteral("zero")));
+    QCOMPARE(container1.value(KeyClass(1), ValueClass()), ValueClass(QStringLiteral("one")));
+    QCOMPARE(container1.value(KeyClass(2), ValueClass()), ValueClass(QStringLiteral("two")));
+    QCOMPARE(container1.value(KeyClass(3), ValueClass()), ValueClass(QStringLiteral("three")));
+    QCOMPARE(container1.value(KeyClass(4), ValueClass()), ValueClass(QStringLiteral("four")));
+    QCOMPARE(container1.value(KeyClass(5), ValueClass()), ValueClass(QStringLiteral("five")));
+    QCOMPARE(container1.value(KeyClass(6), ValueClass()), ValueClass(QStringLiteral("six")));
+    QCOMPARE(container1.value(KeyClass(7), ValueClass()), ValueClass(QStringLiteral("seven")));
+    QCOMPARE(container1.value(KeyClass(8), ValueClass()), ValueClass(QStringLiteral("eight")));
+
+    QVERIFY(container3.unite(container2, true));
+    QCOMPARE(container3.size(), 9);
+    QCOMPARE(container3.value(KeyClass(0), ValueClass()), ValueClass(QStringLiteral("zero1")));
+    QCOMPARE(container3.value(KeyClass(1), ValueClass()), ValueClass(QStringLiteral("one")));
+    QCOMPARE(container3.value(KeyClass(2), ValueClass()), ValueClass(QStringLiteral("two")));
+    QCOMPARE(container3.value(KeyClass(3), ValueClass()), ValueClass(QStringLiteral("three")));
+    QCOMPARE(container3.value(KeyClass(4), ValueClass()), ValueClass(QStringLiteral("four")));
+    QCOMPARE(container3.value(KeyClass(5), ValueClass()), ValueClass(QStringLiteral("five")));
+    QCOMPARE(container3.value(KeyClass(6), ValueClass()), ValueClass(QStringLiteral("six")));
+    QCOMPARE(container3.value(KeyClass(7), ValueClass()), ValueClass(QStringLiteral("seven")));
+    QCOMPARE(container3.value(KeyClass(8), ValueClass()), ValueClass(QStringLiteral("eight")));
+
+    container3.clear();
+    QVERIFY(container3.unite(container2));
+    QCOMPARE(container3, container2);
+
+    const auto container4 = container1;
+    QVERIFY(container1.unite(HugeMap<KeyClass, ValueClass>()));
+    QCOMPARE(container4, container1);
+}
+
+void tst_HugeMap::testFragmentation()
+{
+    HugeMap<KeyClass, qint8> container;
+    QCOMPARE(container.fragmentation(), 0.0);
+    container.insert(0, 'A');
+    QCOMPARE(container.fragmentation(), 0.0);
+    container.insert(1, 'B');
+    QCOMPARE(container.fragmentation(), 0.0);
+    container.insert(2, 'C');
+    QCOMPARE(container.fragmentation(), 0.0);
+    container.insert(4, 'D');
+    QCOMPARE(container.fragmentation(), 0.0);
+    container.insert(8, 'E');
+    QCOMPARE(container.fragmentation(), 0.0);
+    const auto junk = container.value(0);
+    Q_UNUSED(junk);
+    QCOMPARE(container.fragmentation(), 0.2);
+    container.remove(8);
+    QCOMPARE(container.fragmentation(), 0.25);
+    container.remove(2);
+    QCOMPARE(container.fragmentation(), 0.5);
+    container.remove(4);
+    QCOMPARE(container.fragmentation(), 0.5);
+    container.insert(9, 'F');
+    QCOMPARE(container.fragmentation(), 0.0);
+    container.clear();
+    QCOMPARE(container.fragmentation(), 0.0);
 }
 
 void tst_HugeMap::testGenericEmpty(bool(HugeMap<KeyClass, ValueClass>::*fn)() const){
@@ -559,6 +708,32 @@ void tst_HugeMap::testUnEquality()
     container2.insert(2, QStringLiteral("two"));
     QVERIFY(!(container != container2));
     QVERIFY(container != container3);
+}
+
+void tst_HugeMap::testMoveAssignment()
+{
+    HugeMap<KeyClass, ValueClass> container1{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    HugeMap<KeyClass, ValueClass> container2{
+        std::make_pair(3, QStringLiteral("three"))
+        , std::make_pair(5, QStringLiteral("five"))
+        , std::make_pair(6, QStringLiteral("six"))
+        , std::make_pair(7, QStringLiteral("seven"))
+        , std::make_pair(9, QStringLiteral("nine"))
+    };
+    const auto container4 = container2;
+
+    container1 = std::move(container2);
+
+    QCOMPARE(container1.value(KeyClass(3), ValueClass()), ValueClass(QStringLiteral("three")));
+    QCOMPARE(container1.value(KeyClass(2), ValueClass()), ValueClass());
+
+    QCOMPARE(container4, container1);
 }
 
 void tst_HugeMap::testSerialisation()

@@ -36,17 +36,17 @@ private slots:
     void testLastKey();
     //void testRemove();
     void testSize();
-    //void testSwap();
+    void testSwap();
     //void testTake();
-    //void testToQtContainer();
-    //void testToStdContainer();
+    void testToQtContainer();
+    void testToStdContainer();
     void testUniqueKeys();
-    //void testUnite();
+    void testUnite();
     //void testValue();
 
     // test specific public API
     //void testDefrag();
-    //void testFragmentation();
+    void testFragmentation();
     //void testCompression();
     //void testCacheSizeChange();
     void testFileSize();
@@ -60,7 +60,7 @@ private slots:
     void testEquality();
     void testUnEquality();
     //void testAssignment();
-    //void testMoveAssignment();
+    void testMoveAssignment();
     //void testOperatorGet();
     //void testOperatorDebug();
     void testSerialisation();

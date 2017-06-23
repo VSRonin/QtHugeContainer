@@ -67,49 +67,31 @@ namespace HugeContainers{
     private:
 
         template <class ValueType>
-        class ContainerObjectData : public QSharedData
+        struct ContainerObjectData : public QSharedData
         {
             bool m_isAvailable;
             union ObjectData
             {
-                explicit ObjectData(qint64 fPos)
-                    :m_fPos(fPos)
+                explicit ObjectData(qint64 fp)
+                    :m_fPos(fp)
                 {}
-                explicit ObjectData(ValueType* val)
-                    :m_val(val)
+                explicit ObjectData(ValueType* v)
+                    :m_val(v)
                 {}
                 qint64 m_fPos;
                 ValueType* m_val;
-            } m_data;
-        public:
-            bool isAvailable() const { return m_isAvailable; }
-            qint64 fPos() const { return m_data.m_fPos; }
-            const ValueType* val() const { return m_data.m_val; }
-            ValueType* val() { return m_data.m_val; }
-            void setFPos(qint64 fp){
-                if (m_isAvailable)
-                    delete m_data.m_val;
-                m_data.m_fPos = fp;
-                m_isAvailable = false;
-            }
-            void setVal(ValueType* vl)
-            {
-                if (m_isAvailable)
-                    delete m_data.m_val;
-                m_data.m_val = vl;
-                m_isAvailable = true;
-            }
-            explicit ContainerObjectData(qint64 fPos)
+            } m_data;            
+            explicit ContainerObjectData(qint64 fp)
                 :QSharedData()
                 , m_isAvailable(false)
-                , m_data(fPos)
+                , m_data(fp)
             {}
-            explicit ContainerObjectData(ValueType* val)
+            explicit ContainerObjectData(ValueType* v)
                 :QSharedData()
                 , m_isAvailable(true)
-                , m_data(val)
+                , m_data(v)
             {
-                Q_ASSERT(val);
+                Q_ASSERT(v);
             }
             ~ContainerObjectData()
             {
@@ -127,9 +109,10 @@ namespace HugeContainers{
         };
 
         template <class ValueType>
-        struct ContainerObject
+        class ContainerObject
         {
-            QSharedDataPointer<ContainerObjectData<ValueType> > m_d;
+            QExplicitlySharedDataPointer<ContainerObjectData<ValueType> > m_d;
+        public:
             explicit ContainerObject(qint64 fPos)
                 :m_d(new ContainerObjectData<ValueType>(fPos))
             {}
@@ -137,6 +120,28 @@ namespace HugeContainers{
                 :m_d(new ContainerObjectData<ValueType>(val))
             {}
             ContainerObject(const ContainerObject& other) = default;
+            bool isAvailable() const { return m_d->m_isAvailable; }
+            qint64 fPos() const { return m_d->m_data.m_fPos; }
+            const ValueType* val() const { Q_ASSERT(m_d->m_isAvailable); return m_d->m_data.m_val; }
+            ValueType* val() { Q_ASSERT(m_d->m_isAvailable); m_d.detach(); return m_d->m_data.m_val; }
+            void setFPos(qint64 fp)
+            {
+                if (!m_d->m_isAvailable && m_d->m_data.m_fPos == fp)
+                    return;
+                m_d.detach();
+                if (m_d->m_isAvailable)
+                    delete m_d->m_data.m_val;
+                m_d->m_data.m_fPos = fp;
+                m_d->m_isAvailable = false;
+            }
+            void setVal(ValueType* vl)
+            {
+                m_d.detach();
+                if (m_d->m_isAvailable)
+                    delete m_d->m_data.m_val;
+                m_d->m_data.m_val = vl;
+                m_d->m_isAvailable = true;
+            }
         };
 
         template <class KeyType, class ValueType, bool sorted>
@@ -211,14 +216,14 @@ namespace HugeContainers{
             QHash<KeyType, qint64> oldPos;
             bool allGood = true;
             for (auto i = m_d->m_itemsMap->begin(); allGood && i != m_d->m_itemsMap->end(); ++i) {
-                if (i->m_d->isAvailable())
+                if (i->isAvailable())
                     continue;
                 const auto newMapIter = newMap->insert(newFile->pos(), false);
                 QByteArray blockToWrite = readBlock(i.key(), readCompressed);
                 if (writeCompression != 0)
                     blockToWrite = qCompress(blockToWrite, writeCompression);
                 if (newFile->write(blockToWrite) >= 0) {
-                    oldPos.insert(i.key(), i->m_d->fPos());
+                    oldPos.insert(i.key(), i->fPos());
                     i->m_d->setFPos (newMapIter.key());
                 }
                 else {
@@ -311,11 +316,10 @@ namespace HugeContainers{
                 const KeyType keyToWrite = m_d->m_cache->dequeue();
                 auto valToWrite = m_d->m_itemsMap->find(keyToWrite);
                 Q_ASSERT(valToWrite != m_d->m_itemsMap->end());
-                Q_ASSERT(valToWrite->m_d->isAvailable());
-                const qint64 result = writeElementInMap(*(valToWrite->m_d->val()));
+                Q_ASSERT(valToWrite->isAvailable());
+                const qint64 result = writeElementInMap(*(valToWrite->val()));
                 if (result>=0) {
-
-                    valToWrite->m_d->setFPos(result);
+                    valToWrite->setFPos(result);
                 }
                 else{
                     m_d->m_cache->prepend(keyToWrite);
@@ -341,9 +345,9 @@ namespace HugeContainers{
                 m_d->m_itemsMap->insert(key, ContainerObject<ValueType>(val.release()));
             }
             else {
-                if (!itemIter->m_d->isAvailable())
-                    removeFromMap(itemIter->m_d->fPos());
-                itemIter->m_d->setVal(val.release());
+                if (!itemIter->isAvailable())
+                    removeFromMap(itemIter->fPos());
+                itemIter->setVal(val.release());
             }
             return true;
         }
@@ -357,8 +361,8 @@ namespace HugeContainers{
             m_d->m_device->setTextModeEnabled(false);
             auto itemIter = m_d->m_itemsMap->constFind(key);
             Q_ASSERT(itemIter != m_d->m_itemsMap->constEnd());
-            Q_ASSERT(!itemIter->m_d->isAvailable());
-            auto fileIter = m_d->m_memoryMap->constFind(itemIter->m_d->fPos());
+            Q_ASSERT(!itemIter->isAvailable());
+            auto fileIter = m_d->m_memoryMap->constFind(itemIter->fPos());
             Q_ASSERT(fileIter != m_d->m_memoryMap->constEnd());
             if (fileIter.value())
                 return QByteArray();
@@ -549,8 +553,8 @@ namespace HugeContainers{
             auto itemIter = m_d->m_itemsMap->find(key);
             Q_ASSERT(itemIter != m_d->m_itemsMap->end());
             m_d->m_cache->removeAll(key);
-            if (!itemIter->m_d->isAvailable())
-                removeFromMap(itemIter->m_d->fPos());
+            if (!itemIter->isAvailable())
+                removeFromMap(itemIter->fPos());
             m_d->m_itemsMap->erase(itemIter);
             
         }
@@ -610,7 +614,7 @@ namespace HugeContainers{
         {
             auto valueIter = m_d->m_itemsMap->find(key);
             Q_ASSERT(valueIter != m_d->m_itemsMap->end());
-            if(!valueIter->m_d->isAvailable()){
+            if(!valueIter->isAvailable()){
                 auto result = valueFromBlock(key);
                 Q_ASSERT(result);
                 const bool enqueueRes = enqueueValue(key, result);
@@ -620,7 +624,7 @@ namespace HugeContainers{
                 m_d->m_cache->removeAll(key);
                 m_d->m_cache->enqueue(key);
             }
-            return *(valueIter->m_d->val());
+            return *(valueIter->val());
         }
         
         ValueType& operator[](const KeyType& key){
@@ -631,7 +635,7 @@ namespace HugeContainers{
                 valueIter = m_d->m_itemsMap->find(key);
             }
             Q_ASSERT(valueIter != m_d->m_itemsMap->end());
-            if (!valueIter->m_d->isAvailable()) {
+            if (!valueIter->isAvailable()) {
                 auto result = valueFromBlock(key);
                 Q_ASSERT(result);
                 const bool enqueueRes = enqueueValue(key, result);
@@ -641,7 +645,7 @@ namespace HugeContainers{
                 m_d->m_cache->removeAll(key);
                 m_d->m_cache->enqueue(key);
             }
-            return *(valueIter->m_d->val());
+            return *(valueIter->val());
         }
         ValueType operator[](const KeyType& key) const{
             if(contains(key))
@@ -659,64 +663,69 @@ namespace HugeContainers{
         bool unite(const HugeContainer<KeyType,ValueType,sorted>& other, bool overWrite = false){
             if (other.isEmpty())
                 return true;
+            if(isEmpty()){
+                operator=(other);
+                return true;
+            }
             bool neverDetatched = true;
             const auto endItemMap = other.m_d->m_itemsMap->constEnd();
-            for (auto i = other.m_d->m_itemsMap->constBegin(); i != endItemMap;++i){
-                auto currItmIter = m_d->m_itemsMap->find(i.key());
+            for (auto oterItmIter = other.m_d->m_itemsMap->constBegin(); oterItmIter != endItemMap;++oterItmIter){
+                auto currItmIter = m_d->m_itemsMap->find(oterItmIter.key());
                 if (currItmIter != m_d->m_itemsMap->end() && !overWrite)
                     continue;
                 if(neverDetatched){
                     m_d.detach();
+                    currItmIter = m_d->m_itemsMap->find(oterItmIter.key());
                     neverDetatched = false;
                 }
-                if (i->m_d->isAvailable()) {
+                if (oterItmIter->isAvailable()) {
                     if (currItmIter != m_d->m_itemsMap->end()) { // contains(i.key())
-                        if (m_d->m_cache->contains(i.key())) {
-                            Q_ASSERT(currItmIter->m_d->isAvailable());
-                            currItmIter->m_d->setVal(new ValueType(*(i->m_d->val())));
+                        if (m_d->m_cache->contains(oterItmIter.key())) {
+                            Q_ASSERT(currItmIter->isAvailable());
+                            currItmIter->setVal(new ValueType(*(oterItmIter->val())));
                         }
                         else {
-                            Q_ASSERT(!currItmIter->m_d->isAvailable());
-                            const qint64 newPos = writeElementInMap(*(i->m_d->val()));
+                            Q_ASSERT(!currItmIter->isAvailable());
+                            const qint64 newPos = writeElementInMap(*(oterItmIter->val()));
                             if (newPos >= 0)
-                                removeFromMap(currItmIter->m_d->fPos());
+                                removeFromMap(currItmIter->fPos());
                             else
                                 return false;
-                            currItmIter->m_d->setFPos(newPos);
+                            currItmIter->setFPos(newPos);
                         }
                     }
                     else{
-                        const qint64 newPos = writeElementInMap(*(i->m_d->val()));
+                        const qint64 newPos = writeElementInMap(*(oterItmIter->val()));
                         if (newPos >= 0)
-                            m_d->m_itemsMap->insert(i.key(), ContainerObject<ValueType>(newPos));
+                            m_d->m_itemsMap->insert(oterItmIter.key(), ContainerObject<ValueType>(newPos));
                         else
                             return false;
                     }
                 }
                 else{
                     if (currItmIter != m_d->m_itemsMap->end()) {
-                        if (m_d->m_cache->contains(i.key())) {
-                            Q_ASSERT(currItmIter->m_d->isAvailable());
-                            ValueType* newVal = other.valueFromBlock(i.key());
+                        if (currItmIter->isAvailable()) {
+                            Q_ASSERT(m_d->m_cache->contains(oterItmIter.key()));
+                            auto newVal = other.valueFromBlock(oterItmIter.key());
                             if (!newVal)
                                 return false;
-                            currItmIter->m_d->setVal(newVal);
+                            currItmIter->setVal(newVal.release());
                         }
                         else{
-                            Q_ASSERT(!currItmIter->m_d->isAvailable());
-                            const qint64 newPos = writeInMap(other.readBlock(i.key()));
+                            Q_ASSERT(!currItmIter->isAvailable());
+                            const qint64 newPos = writeInMap(other.readBlock(oterItmIter.key()));
                             if (newPos >= 0)
-                                removeFromMap(currItmIter->m_d->fPos());
+                                removeFromMap(currItmIter->fPos());
                             else
                                 return false;
-                            currItmIter->m_d->setFPos(newPos);
+                            currItmIter->setFPos(newPos);
                         }
                         
                     }
                     else{
-                        const qint64 newPos = writeInMap(other.readBlock(i.key()));
+                        const qint64 newPos = writeInMap(other.readBlock(oterItmIter.key()));
                         if (newPos >= 0)
-                            m_d->m_itemsMap->insert(i.key(), ContainerObject<ValueType>(newPos));
+                            m_d->m_itemsMap->insert(oterItmIter.key(), ContainerObject<ValueType>(newPos));
                         else
                             return false;
                     }
@@ -921,40 +930,6 @@ namespace HugeContainers{
     using HugeMap = HugeContainer<KeyType, ValueType, true>;
     template <class KeyType, class ValueType>
     using HugeHash = HugeContainer<KeyType, ValueType, false>;
-    
-    /*
-    template <class ValueType>
-    class HugeList{
-        template <class ValueType>
-        struct HugeListData : public QSharedData
-        {
-            HugeListData()
-                :m_indexHint(0)
-            {}
-            HugeListData(const HugeListData& other)
-                :m_indexHint(other.m_indexHint)
-                , m_container(other.m_container)
-                , m_indexHint(other.m_indexHint)
-            {}
-            QList<quint32> m_indexList;
-            HugeHash<quint32, ValueType> m_container;
-            quint32 m_indexHint;
-        };
-        QSharedDataPointer<HugeListData<ValueType>> m_d;
-    public:
-        HugeList()
-            :m_d(new HugeListData<ValueType>)
-        {}
-        HugeList(const HugeList<ValueType>& other) = default;
-        HugeList& operator=(HugeList<ValueType>&& other) Q_DECL_NOTHROW {
-            swap(other);
-            return *this;
-        }
-        void swap(HugeList<ValueType> &other) Q_DECL_NOTHROW {
-            std::swap(m_d, other.m_d);
-        }
-    };
-    */
 }
 template<class KeyType, class ValueType, bool sorted>
 QDataStream& operator<<(QDataStream &out, const HugeContainers::HugeContainer<KeyType, ValueType, sorted>& cont){
@@ -967,8 +942,8 @@ QDataStream& operator<<(QDataStream &out, const HugeContainers::HugeContainer<Ke
     const auto itmEnd = cont.m_d->m_itemsMap->constEnd();
     for (auto i = cont.m_d->m_itemsMap->constBegin(); i != itmEnd;++i){
         out << i.key();
-        if (i->m_d->isAvailable()) {
-            out << *(i->m_d->val());
+        if (i->isAvailable()) {
+            out << *(i->val());
         }
         else{
             const QByteArray block = cont.readBlock(i.key());
