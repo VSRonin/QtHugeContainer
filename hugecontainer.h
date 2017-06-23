@@ -568,6 +568,23 @@ namespace HugeContainers{
                 return find(key);
             return end();
         }
+        const KeyType& key(const ValueType& val) const{
+            const auto itemMapEnd = m_d->m_itemsMap->constEnd();
+            for (auto i = m_d->m_itemsMap->constBegin(); i != itemMapEnd; ++i) {
+                if (value(i.key()) == val)
+                    return i.key();
+            }
+            Q_UNREACHABLE();
+        }
+        KeyType key(const ValueType& val, const KeyType& defaultKey) const
+        {
+            const auto itemMapEnd = m_d->m_itemsMap->constEnd();
+            for (auto i = m_d->m_itemsMap->constBegin(); i != itemMapEnd; ++i) {
+                if (value(i.key()) == val)
+                    return i.key();
+            }
+            return defaultKey;
+        }
         void clear()
         {
             if (isEmpty())

@@ -1,4 +1,4 @@
-#include "..\..\hugecontainer.h"
+#include "../../hugecontainer.h"
 #include <QTest>
 #include "bench_hugemap.h"
 #define SINGLE_ARG(...) __VA_ARGS__ // to allow templates with multiple parameters inside macros
@@ -8,7 +8,7 @@ void bench_hugemap::benchHugeInsert_data()
     QTest::addColumn<HugeMap<int, QString> >("container");
     QTest::addColumn<int >("benchContSize");
     HugeMap<int, QString> container;
-    for (int totalSize = 10; totalSize <= 1000; totalSize += 10) {
+    for (int totalSize = 50; totalSize <= 1000; totalSize += 50) {
         container.setMaxCache(0);
         QTest::newRow(("No Cache " + QString::number(totalSize)).toLatin1().constData()) << container << totalSize;
         container.setMaxCache(totalSize / 2);

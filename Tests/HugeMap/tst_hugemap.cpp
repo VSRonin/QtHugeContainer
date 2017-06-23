@@ -1,4 +1,3 @@
-#include "..\..\hugecontainer.h"
 #include <QtTest>
 #include <QDebug>
 #include <QDataStream>
@@ -64,6 +63,12 @@ namespace QTest {
         return qstrdup(value.val().toLatin1().data());
     }
 }
+
+void tst_HugeMap::initTestCase()
+{
+    HugeContainers::cleanUp();
+}
+
 void tst_HugeMap::testConstructor()
 {
     QFETCH(SINGLE_ARG(const HugeMap<KeyClass, ValueClass>), ConstructedContainer);
@@ -113,6 +118,42 @@ void tst_HugeMap::testConstructor_data()
     QTest::newRow("from Qt container") << fromQt << expKey << expVal;
 }
 
+void tst_HugeMap::testClear()
+{
+    HugeMap<KeyClass, ValueClass> container{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    QVERIFY(!container.isEmpty());
+    QVERIFY(!container.keys().isEmpty());
+    QCOMPARE(container.size(), 5);
+    QVERIFY(!container.fileSize()==0);
+    container.clear();
+    QVERIFY(container.isEmpty());
+    QVERIFY(container.keys().isEmpty());
+    QCOMPARE(container.size(),0);
+    QCOMPARE(container.fileSize(), 0);
+
+    container.setMaxCache(10);
+    container.insert(0, QStringLiteral("zero"));
+    container.insert(1, QStringLiteral("one"));
+    container.insert(2, QStringLiteral("two"));
+    container.insert(4, QStringLiteral("four"));
+    container.insert(8, QStringLiteral("eight"));
+    QVERIFY(!container.isEmpty());
+    QVERIFY(!container.keys().isEmpty());
+    QCOMPARE(container.size(), 5);
+    QVERIFY(container.fileSize() == 0);
+    container.clear();
+    QVERIFY(container.isEmpty());
+    QVERIFY(container.keys().isEmpty());
+    QCOMPARE(container.size(), 0);
+    QCOMPARE(container.fileSize(), 0);
+}
+
 void tst_HugeMap::testMinimalFileSize()
 {
     QFETCH(SINGLE_ARG(HugeMap<KeyClass, ValueClass>), ConstructedContainer);
@@ -158,78 +199,157 @@ void tst_HugeMap::testContains()
     QVERIFY(container.contains(2));
     QVERIFY(!container.contains(3));
     QVERIFY(!container.contains(-1));
+    container.remove(1);
+    QVERIFY(!container.contains(1));
+}
+
+void tst_HugeMap::testGenericSize(int(HugeMap<KeyClass, ValueClass>::*fn)() const){
+    HugeMap<KeyClass, ValueClass> container;
+    auto funcCall = std::bind(fn, &container);
+    QCOMPARE(funcCall(), 0);
+    container.insert(0, ValueClass());
+    QCOMPARE(funcCall(), 1);
+    container.insert(1, ValueClass());
+    QCOMPARE(funcCall(), 2);
+    container.insert(2, ValueClass());
+    QCOMPARE(funcCall(), 3);
+    container.remove(1);
+    QCOMPARE(funcCall(), 2);
+    container.clear();
+    QCOMPARE(funcCall(), 0);
 }
 
 void tst_HugeMap::testCount()
 {
-    HugeMap<KeyClass, ValueClass> container;
-    QCOMPARE(container.count(), 0);
-    container.insert(0, ValueClass());
-    QCOMPARE(container.count(), 1);
-    container.insert(1, ValueClass());
-    QCOMPARE(container.count(), 2);
-    container.insert(2, ValueClass());
-    QCOMPARE(container.count(), 3);
-    container.remove(1);
-    QCOMPARE(container.count(), 2);
-    container.clear();
-    QCOMPARE(container.count(), 0);
+    testGenericSize(&HugeMap<KeyClass, ValueClass>::count);
 }
 
 void tst_HugeMap::testSize()
 {
+    testGenericSize(&HugeMap<KeyClass, ValueClass>::size);
+}
+
+void tst_HugeMap::testUniqueKeys()
+{
+    const HugeMap<KeyClass, ValueClass> container{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    auto containerKeys = container.uniqueKeys();
+    QCOMPARE(containerKeys.size(), 5);
+    QCOMPARE(containerKeys.first(), KeyClass(0));
+    QCOMPARE(containerKeys.at(1), KeyClass(1));
+    QCOMPARE(containerKeys.at(2), KeyClass(2));
+    QCOMPARE(containerKeys.at(3), KeyClass(4));
+    QCOMPARE(containerKeys.last(), KeyClass(8));
+}
+
+void tst_HugeMap::testGenericEmpty(bool(HugeMap<KeyClass, ValueClass>::*fn)() const){
     HugeMap<KeyClass, ValueClass> container;
-    QCOMPARE(container.size(), 0);
+    auto funcCall = std::bind(fn, &container);
+    QVERIFY(funcCall());
     container.insert(0, ValueClass());
-    QCOMPARE(container.size(), 1);
+    QVERIFY(!funcCall());
     container.insert(1, ValueClass());
-    QCOMPARE(container.size(), 2);
+    QVERIFY(!funcCall());
     container.insert(2, ValueClass());
-    QCOMPARE(container.size(), 3);
-    container.remove(1);
-    QCOMPARE(container.size(), 2);
+    QVERIFY(!funcCall());
+    auto container2 = container;
+    auto funcCall2 = std::bind(fn, &container2);
+    container2.remove(0);
+    container2.remove(1);
+    container2.remove(2);
+    QVERIFY(funcCall2());
+    QVERIFY(!funcCall());
     container.clear();
-    QCOMPARE(container.size(), 0);
+    QVERIFY(funcCall());
 }
 
 void tst_HugeMap::testEmpty()
 {
-    HugeMap<KeyClass, ValueClass> container;
-    QVERIFY(container.empty());
-    container.insert(0, ValueClass());
-    QVERIFY(!container.empty());
-    container.insert(1, ValueClass());
-    QVERIFY(!container.empty());
-    container.insert(2, ValueClass());
-    QVERIFY(!container.empty());
-    auto container2 = container;
-    container2.remove(0);
-    container2.remove(1);
-    container2.remove(2);
-    QVERIFY(container2.empty());
-    QVERIFY(!container.empty());
-    container.clear();
-    QVERIFY(container.empty());
+    testGenericEmpty(&HugeMap<KeyClass, ValueClass>::empty);
 }
 
 void tst_HugeMap::testIsEmpty()
 {
-    HugeMap<KeyClass, ValueClass> container;
-    QVERIFY(container.isEmpty());
-    container.insert(0, ValueClass());
-    QVERIFY(!container.isEmpty());
-    container.insert(1, ValueClass());
-    QVERIFY(!container.isEmpty());
-    container.insert(2, ValueClass());
-    QVERIFY(!container.isEmpty());
-    auto container2 = container;
-    container2.remove(0);
-    container2.remove(1);
-    container2.remove(2);
-    QVERIFY(container2.isEmpty());
-    QVERIFY(!container.isEmpty());
-    container.clear();
-    QVERIFY(container.isEmpty());
+    testGenericEmpty(&HugeMap<KeyClass, ValueClass>::isEmpty);
+}
+
+void tst_HugeMap::testKey()
+{
+    const HugeMap<KeyClass, ValueClass> container{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    QCOMPARE(container.key(ValueClass(QStringLiteral("zero"))), KeyClass(0));
+    QCOMPARE(container.key(ValueClass(QStringLiteral("one"))), KeyClass(1));
+    QCOMPARE(container.key(ValueClass(QStringLiteral("two"))), KeyClass(2));
+    QCOMPARE(container.key(ValueClass(QStringLiteral("four"))), KeyClass(4));
+    QCOMPARE(container.key(ValueClass(QStringLiteral("eight"))), KeyClass(8));
+    QCOMPARE(container.key(ValueClass(QStringLiteral("nine")), KeyClass(-1)), KeyClass(-1));
+}
+
+void tst_HugeMap::testKeys()
+{
+    const HugeMap<KeyClass, ValueClass> container{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    auto containerKeys = container.keys();
+    QCOMPARE(containerKeys.size(), 5);
+    QCOMPARE(containerKeys.first(), KeyClass(0));
+    QCOMPARE(containerKeys.at(1), KeyClass(1));
+    QCOMPARE(containerKeys.at(2), KeyClass(2));
+    QCOMPARE(containerKeys.at(3), KeyClass(4));
+    QCOMPARE(containerKeys.last(), KeyClass(8));
+}
+
+void tst_HugeMap::testLast()
+{
+    HugeMap<KeyClass, ValueClass> container{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+
+    const auto container2 = container;
+    QCOMPARE(container.last(), *(container.constEnd()-1));
+    QCOMPARE(container.last(), ValueClass(QStringLiteral("eight")));
+    container.last() = ValueClass(QStringLiteral("eight1"));
+    QCOMPARE(container.last(), *(container.constEnd() - 1));
+    QCOMPARE(container.last(), ValueClass(QStringLiteral("eight1")));
+    container.insert(9, QStringLiteral("nine"));
+    QCOMPARE(container.last(), (container.constEnd() - 1).value());
+    QCOMPARE(container.last(), ValueClass(QStringLiteral("nine")));
+    QCOMPARE(container2.last(), ValueClass(QStringLiteral("eight")));
+    QCOMPARE(container2.last(), *(container2.constEnd() - 1));
+}
+
+void tst_HugeMap::testLastKey()
+{
+    HugeMap<KeyClass, ValueClass> container{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    QCOMPARE(container.lastKey(), (container.constEnd() - 1).key());
+    QCOMPARE(container.lastKey(), KeyClass(8));
+    container.insert(9, QStringLiteral("nine"));
+    QCOMPARE(container.lastKey(), (container.constEnd() - 1).key());
+    QCOMPARE(container.lastKey(), KeyClass(9));
 }
 
 void tst_HugeMap::testErase()
@@ -358,6 +478,33 @@ void tst_HugeMap::testFirstKey()
     QCOMPARE(container.firstKey(), KeyClass(-1));
 }
 
+void tst_HugeMap::testFileSize()
+{
+    HugeMap<KeyClass, qint8> container;
+    QCOMPARE(container.fileSize(), 0);
+    container.insert(0, 'A');
+    QCOMPARE(container.fileSize(), 0);
+    container.insert(1, 'B');
+    QCOMPARE(container.fileSize(), 1);
+    container.insert(2, 'C');
+    QCOMPARE(container.fileSize(), 2);
+    container.insert(4, 'D');
+    QCOMPARE(container.fileSize(), 3);
+    container.insert(8, 'E');
+    QCOMPARE(container.fileSize(), 4);
+    const auto junk = container.value(0);
+    Q_UNUSED(junk);
+    QCOMPARE(container.fileSize(), 5);
+    container.remove(8);
+    QCOMPARE(container.fileSize(), 4);
+    container.remove(2);
+    QCOMPARE(container.fileSize(), 4);
+    container.remove(4);
+    QCOMPARE(container.fileSize(), 2);
+    container.clear();
+    QCOMPARE(container.fileSize(), 0);
+}
+
 void tst_HugeMap::testEquality()
 {
     const HugeMap<KeyClass, ValueClass> container{
@@ -378,11 +525,39 @@ void tst_HugeMap::testEquality()
     QVERIFY(container == container2);
     QVERIFY(container == container3);
     container2.remove(2);
-    QVERIFY(container != container2);
+    QVERIFY(!(container == container2));
     QVERIFY(container == container3);
     container3.insert(0,QStringLiteral("zero1"));
     container2.insert(2, QStringLiteral("two"));
     QVERIFY(container == container2);
+    QVERIFY(!(container == container3));
+}
+
+void tst_HugeMap::testUnEquality()
+{
+    const HugeMap<KeyClass, ValueClass> container{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    HugeMap<KeyClass, ValueClass> container2{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    auto container3 = container;
+    QVERIFY(!(container != container2));
+    QVERIFY(!(container != container3));
+    container2.remove(2);
+    QVERIFY(container != container2);
+    QVERIFY(!(container != container3));
+    container3.insert(0, QStringLiteral("zero1"));
+    container2.insert(2, QStringLiteral("two"));
+    QVERIFY(!(container != container2));
     QVERIFY(container != container3);
 }
 
