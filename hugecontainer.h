@@ -278,17 +278,19 @@ namespace HugeContainers{
                     fileIter = m_d->m_memoryMap->erase(fileIter);
                     Q_ASSERT(fileIter != m_d->m_memoryMap->end());
                     if (fileIter.value())
-                        m_d->m_memoryMap->erase(fileIter);
-                    m_d->m_device->resize(m_d->m_memoryMap->lastKey());
+                        fileIter = m_d->m_memoryMap->erase(fileIter);
+                    if (fileIter == m_d->m_memoryMap->end())
+                        m_d->m_device->resize(m_d->m_memoryMap->lastKey());
                     return;
                 }
             }
-            if ((fileIter + 1) != m_d->m_memoryMap->end()) {
-                if ((fileIter + 1).value())
-                    m_d->m_memoryMap->erase(fileIter + 1);
-            }
             fileIter.value() = true;
-            m_d->m_device->resize(m_d->m_memoryMap->lastKey());
+            if (++fileIter != m_d->m_memoryMap->end()) {
+                if (fileIter.value())
+                    fileIter = m_d->m_memoryMap->erase(fileIter);
+            }
+            if (fileIter == m_d->m_memoryMap->end())
+                m_d->m_device->resize(m_d->m_memoryMap->lastKey());
         }
         qint64 writeElementInMap(const ValueType& val) const
         {
