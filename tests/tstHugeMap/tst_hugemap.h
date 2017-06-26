@@ -34,7 +34,7 @@ private slots:
     void testKeys();
     void testLast();
     void testLastKey();
-    //void testRemove();
+    void testRemove();
     void testSize();
     void testSwap();
     //void testTake();
@@ -45,10 +45,12 @@ private slots:
     //void testValue();
 
     // test specific public API
-    //void testDefrag();
+    void testDefrag_data();
+    void testDefrag();
     void testFragmentation();
     //void testCompression();
-    //void testCacheSizeChange();
+    void testCacheSizeChange_data();
+    void testCacheSizeChange();
     void testFileSize();
 
     // test iterators

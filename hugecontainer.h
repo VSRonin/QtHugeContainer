@@ -213,7 +213,7 @@ namespace HugeContainers{
             if (!newFile->open())
                 return false;
             auto newMap = std::make_unique<QMap<qint64, bool> >();
-            QHash<KeyType, qint64> oldPos;
+            std::conditional<sorted, QMap<KeyType, qint64>, QHash<KeyType, qint64> >::type oldPos;
             bool allGood = true;
             for (auto i = m_d->m_itemsMap->begin(); allGood && i != m_d->m_itemsMap->end(); ++i) {
                 if (i->isAvailable())
@@ -224,7 +224,7 @@ namespace HugeContainers{
                     blockToWrite = qCompress(blockToWrite, writeCompression);
                 if (newFile->write(blockToWrite) >= 0) {
                     oldPos.insert(i.key(), i->fPos());
-                    i->m_d->setFPos (newMapIter.key());
+                    i->setFPos (newMapIter.key());
                 }
                 else {
                     allGood = false;
@@ -234,7 +234,7 @@ namespace HugeContainers{
                 for (auto i = oldPos.constEnd(); i != oldPos.constEnd(); ++i) {
                     auto oldMapIter = m_d->m_itemsMap->find(i.key());
                     Q_ASSERT(oldMapIter != m_d->m_itemsMap->end());
-                    oldMapIter.value().m_d->setFPos(i.value());
+                    oldMapIter.value().setFPos(i.value());
                 }
                 return false;
             }
@@ -545,10 +545,10 @@ namespace HugeContainers{
             std::swap(m_d, other.m_d);
         }
 
-        void remove(const KeyType& key)
+        bool remove(const KeyType& key)
         {
             if (!contains(key))
-                return;
+                return false;
             m_d.detach();
             auto itemIter = m_d->m_itemsMap->find(key);
             Q_ASSERT(itemIter != m_d->m_itemsMap->end());
@@ -556,7 +556,7 @@ namespace HugeContainers{
             if (!itemIter->isAvailable())
                 removeFromMap(itemIter->fPos());
             m_d->m_itemsMap->erase(itemIter);
-            
+            return true;
         }
         iterator insert(const KeyType &key, const ValueType &val)
         {

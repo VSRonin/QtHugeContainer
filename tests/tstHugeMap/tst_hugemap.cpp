@@ -367,6 +367,37 @@ void tst_HugeMap::testUnite()
     QCOMPARE(container4, container1);
 }
 
+void tst_HugeMap::testDefrag_data()
+{
+    QTest::addColumn<HugeMap<KeyClass, qint8>>("dataToDefrag");
+    HugeMap<KeyClass, qint8> container;
+    QTest::newRow("Empty") << container;
+    QCOMPARE(container.fragmentation(), 0.0);
+    container.insert(0, 'A');
+    container.insert(1, 'B');
+    container.insert(2, 'C');
+    container.insert(4, 'D');
+    container.insert(8, 'E');
+    container.insert(16, 'F');
+    QTest::newRow("No Frag") << container;
+    const auto junk = container.value(0);
+    Q_UNUSED(junk);
+    QTest::newRow("1 Hole") << container;
+    container.remove(8);
+    QTest::newRow("2 Separate Holes") << container;
+    container.remove(2);
+    QTest::newRow("3 Separate Holes") << container;
+    container.remove(4);
+    QTest::newRow("2 Contiguous Holes") << container;
+}
+
+void tst_HugeMap::testDefrag()
+{
+    QFETCH(SINGLE_ARG(HugeMap<KeyClass, qint8>), dataToDefrag);
+    dataToDefrag.defrag();
+    QCOMPARE(dataToDefrag.fragmentation(), 0.0);
+}
+
 void tst_HugeMap::testFragmentation()
 {
     HugeMap<KeyClass, qint8> container;
@@ -394,6 +425,50 @@ void tst_HugeMap::testFragmentation()
     QCOMPARE(container.fragmentation(), 0.0);
     container.clear();
     QCOMPARE(container.fragmentation(), 0.0);
+}
+
+void tst_HugeMap::testCacheSizeChange_data()
+{
+    QTest::addColumn<HugeMap<KeyClass, ValueClass>>("baseContainer");
+    QTest::addColumn<int>("newCache");
+
+    HugeMap<KeyClass, ValueClass> smallToBig;
+    smallToBig.setMaxCache(1);
+    smallToBig.insert(0, QStringLiteral("zero"));
+    smallToBig.insert(1, QStringLiteral("one"));
+    smallToBig.insert(2, QStringLiteral("two"));
+    smallToBig.insert(4, QStringLiteral("four"));
+    smallToBig.insert(8, QStringLiteral("eight"));
+    QTest::newRow("Small to big") << smallToBig << 10;
+
+    HugeMap<KeyClass, ValueClass> bigToSmall;
+    bigToSmall.setMaxCache(10);
+    bigToSmall.insert(0, QStringLiteral("zero"));
+    bigToSmall.insert(1, QStringLiteral("one"));
+    bigToSmall.insert(2, QStringLiteral("two"));
+    bigToSmall.insert(4, QStringLiteral("four"));
+    bigToSmall.insert(8, QStringLiteral("eight"));
+    QTest::newRow("Big to small") << bigToSmall << 1;
+
+    HugeMap<KeyClass, ValueClass> equalSize;
+    equalSize.setMaxCache(3);
+    equalSize.insert(0, QStringLiteral("zero"));
+    equalSize.insert(1, QStringLiteral("one"));
+    equalSize.insert(2, QStringLiteral("two"));
+    equalSize.insert(4, QStringLiteral("four"));
+    equalSize.insert(8, QStringLiteral("eight"));
+    QTest::newRow("Equal size") << equalSize << 3;
+
+}
+
+void tst_HugeMap::testCacheSizeChange()
+{
+    QFETCH(SINGLE_ARG(HugeMap<KeyClass, ValueClass>), baseContainer);
+    QFETCH(const int, newCache);
+
+    const auto container2 = baseContainer;
+    baseContainer.setMaxCache(newCache);
+    QCOMPARE(container2, baseContainer);
 }
 
 void tst_HugeMap::testGenericEmpty(bool(HugeMap<KeyClass, ValueClass>::*fn)() const){
@@ -499,6 +574,31 @@ void tst_HugeMap::testLastKey()
     container.insert(9, QStringLiteral("nine"));
     QCOMPARE(container.lastKey(), (container.constEnd() - 1).key());
     QCOMPARE(container.lastKey(), KeyClass(9));
+}
+
+void tst_HugeMap::testRemove()
+{
+    HugeMap<KeyClass, ValueClass> container{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+
+    QVERIFY(container.remove(KeyClass(0)));
+    QCOMPARE(container.size(), 4);
+    QCOMPARE(container.value(0, ValueClass()), ValueClass());
+    QVERIFY(!container.remove(KeyClass(9)));
+    QCOMPARE(container.size(), 4);
+    const auto keyList = container.uniqueKeys();
+    int counter = 4;
+    for (auto& singleKey : keyList) {
+        QVERIFY(container.remove(singleKey));
+        QCOMPARE(container.size(), --counter);
+    }
+    QVERIFY(!container.remove(KeyClass(0)));
+    QCOMPARE(container.size(), 0);
 }
 
 void tst_HugeMap::testErase()
@@ -767,14 +867,16 @@ void tst_HugeMap::testSerialisation()
 
 void tst_HugeMap::testSerialisationOldVersion()
 {
-    const HugeMap<int, ValueClass> container{
-        std::make_pair(0, QStringLiteral("zero"))
-        , std::make_pair(1, QStringLiteral("one"))
-        , std::make_pair(2, QStringLiteral("two"))
-        , std::make_pair(4, QStringLiteral("four"))
-        , std::make_pair(8, QStringLiteral("eight"))
+    using ValueMap = QMap<int, int>;
+
+    const HugeMap<int, ValueMap> container{
+        std::make_pair(0, ValueMap({  std::make_pair(0, 0) }))
+        , std::make_pair(1, ValueMap({ std::make_pair(1, 1) }))
+        , std::make_pair(2, ValueMap({ std::make_pair(2, 2) }))
+        , std::make_pair(4, ValueMap({ std::make_pair(4, 4) }))
+        , std::make_pair(8, ValueMap({ std::make_pair(8, 8) }))
     };
-    HugeMap<int, ValueClass> container2;
+    HugeMap<int, ValueMap> container2;
     QFile serialFile("testSerial.dat");
     QVERIFY(serialFile.open(QFile::WriteOnly));
     QDataStream writeStream(&serialFile);
@@ -820,4 +922,34 @@ void tst_HugeMap::testIteratorDetatch()
     iter3.value() = ValueClass(QStringLiteral("zero1"));
     QCOMPARE(iter3.value(), ValueClass(QStringLiteral("zero1")));
     QCOMPARE(iter4.value(), ValueClass(QStringLiteral("zero")));
+
+    HugeMap<KeyClass, ValueClass> container5{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    auto container6 = container5;
+    auto iter5 = container5.begin();
+    auto iter6 = container6.begin();
+    container6[KeyClass(0)] = ValueClass(QStringLiteral("zero1"));
+    QCOMPARE(iter6.value(), ValueClass(QStringLiteral("zero1")));
+    QCOMPARE(iter5.value(), ValueClass(QStringLiteral("zero")));
+
+
+    HugeMap<KeyClass, ValueClass> container7{
+        std::make_pair(0, QStringLiteral("zero"))
+        , std::make_pair(1, QStringLiteral("one"))
+        , std::make_pair(2, QStringLiteral("two"))
+        , std::make_pair(4, QStringLiteral("four"))
+        , std::make_pair(8, QStringLiteral("eight"))
+    };
+    auto container8 = container7;
+    auto iter7 = container7.begin();
+    auto iter8 = container8.begin();
+    container7[KeyClass(0)] = ValueClass(QStringLiteral("zero1"));
+    QCOMPARE(iter7.value(), ValueClass(QStringLiteral("zero1")));
+    QCOMPARE(iter8.value(), ValueClass(QStringLiteral("zero")));
+
 }
