@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QDebug>
 #include <QDataStream>
+#include <functional>
 #include "tst_hugemap.h"
 #define SINGLE_ARG(...) __VA_ARGS__ // to allow templates with multiple parameters inside macros
 using namespace HugeContainers;
