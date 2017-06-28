@@ -27,8 +27,8 @@ private slots:
     void testFind();
     void testFirst();
     void testFirstKey();
-    //void testInsertValue();
-    //void testInsertPointer();
+    void testInsertValue();
+    void testInsertPointer();
     void testIsEmpty();
     void testKey();
     void testKeys();
@@ -61,10 +61,10 @@ private slots:
     // Test Operators
     void testEquality();
     void testUnEquality();
-    //void testAssignment();
+    void testAssignment();
     void testMoveAssignment();
     //void testOperatorGet();
-    //void testOperatorDebug();
+    void testOperatorDebug();
     void testSerialisation();
     void testSerialisationOldVersion();
     
@@ -79,6 +79,7 @@ private:
     void testGenericSize(int(HugeContainers::HugeMap<KeyClass, ValueClass>::*fn)() const);
     void testGenericEmpty(bool(HugeContainers::HugeMap<KeyClass, ValueClass>::*fn)() const);
     
+
 };
 
 #endif // tst_hugemap_h__

@@ -568,6 +568,8 @@ namespace HugeContainers{
         }
         iterator insert(const KeyType &key, ValueType* val)
         {
+            if(!val)
+                return end();
             m_d.detach();
             std::unique_ptr<ValueType> tempval(val);
             if (enqueueValue(key, tempval))
@@ -860,6 +862,7 @@ namespace HugeContainers{
             
         }
         HugeContainer(const HugeContainer& other) = default;
+        HugeContainer& operator=(const HugeContainer& other) = default;
         HugeContainer& operator=(HugeContainer&& other) Q_DECL_NOTHROW{
             swap(other);
             return *this;
