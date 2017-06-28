@@ -48,7 +48,8 @@ private slots:
     void testDefrag_data();
     void testDefrag();
     void testFragmentation();
-    //void testCompression();
+    void testCompression_data();
+    void testCompression();
     void testCacheSizeChange_data();
     void testCacheSizeChange();
     void testFileSize();
@@ -79,7 +80,7 @@ private:
     void testGenericSize(int(HugeContainers::HugeMap<KeyClass, ValueClass>::*fn)() const);
     void testGenericEmpty(bool(HugeContainers::HugeMap<KeyClass, ValueClass>::*fn)() const);
     
-
+    QByteArray createCompressableData() const;
 };
 
 #endif // tst_hugemap_h__

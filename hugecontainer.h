@@ -207,8 +207,6 @@ namespace HugeContainers{
             if (isEmpty()) 
                 return true;
             Q_ASSERT(m_d->m_memoryMap->size() > 1);
-            if (std::all_of(m_d->m_memoryMap->constBegin(), m_d->m_memoryMap->constEnd() - 1, [](bool val) ->bool {return !val; }))
-                return true;
             auto newFile = std::make_unique<QTemporaryFile>(QDir::tempPath() + QDir::separator() + QStringLiteral("HugeContainerDataXXXXXX"));
             if (!newFile->open())
                 return false;
@@ -654,13 +652,15 @@ namespace HugeContainers{
                 return value(key);
             return ValueType{};
         }
-        int compressionLevel() const { return m_compressionLevel; }
+        int compressionLevel() const { return m_d->m_compressionLevel; }
         bool setCompressionLevel(int val) { 
             if (m_d->m_compressionLevel == val || val < -1 || val>9)
                 return false;
             m_d.detach();
-            defrag(m_d->m_compressionLevel != 0, val);
-            m_compressionLevel = val; 
+            if (!defrag(m_d->m_compressionLevel != 0, val))
+                return false;
+            m_d->m_compressionLevel = val;
+            return true;
         }
         bool unite(const HugeContainer<KeyType,ValueType,sorted>& other, bool overWrite = false){
             if (other.isEmpty())
@@ -899,6 +899,8 @@ namespace HugeContainers{
         }
         
         bool defrag(){
+            if (std::all_of(m_d->m_memoryMap->constBegin(), m_d->m_memoryMap->constEnd() - 1, [](bool val) ->bool {return !val; }))
+                return true;
             return defrag(m_d->m_compressionLevel != 0, m_d->m_compressionLevel);
         }
         bool operator==(const HugeContainer<KeyType, ValueType,sorted>& other)const{
